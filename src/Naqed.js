@@ -64,7 +64,6 @@ class Naqed {
         if (Object.keys(dynamic).length) {
           const typeName = Object.keys(dynamic)[0]
           const dynamicFn = dynamic[typeName]
-          // resolver with dynamic shape for results
           const shape = typeName
             ? this.typeRelations[typeName]
             : extractNonArgs(resolveVal)
@@ -72,6 +71,7 @@ class Naqed {
           const resolved = await (isFunction(dynamicFn)
             ? dynamicFn.apply(spec, [extractArgs(queryVal), ctx])
             : dynamicFn)
+
           if (Array.isArray(resolved)) {
             resolveVal = resolved.map(obj =>
               isObject(obj) ? Object.assign(Object.create(shape), obj) : obj
@@ -80,6 +80,12 @@ class Naqed {
             resolveVal = Object.assign(Object.create(shape), resolved)
           } else {
             resolveVal = resolved
+          }
+
+          if (typeName) {
+            // TODO: type should be checked after dynamic creation, this makes relations fail atm
+            // const type = Naqed.types[typeName] || this.types[typeName]
+            // resolveVal = this._applyTypeShape(type, resolveVal)
           }
         }
       }

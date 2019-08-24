@@ -1,7 +1,6 @@
 const util = require('util')
-
 const Naqed = require('../src/Naqed')
-const { ID, STRING, FLOAT } = Naqed.types
+const { ID, INT, STRING, FLOAT } = Naqed.types
 
 const employees = [
   {
@@ -35,9 +34,9 @@ const EmployeeType = {
   name: STRING,
   salary: FLOAT,
   departmentId: STRING,
-  // relate employee to the department
+  // relate employee to their department
   department: {
-    $Department () {
+    async $Department () {
       return departments.find(d => d.id === this.departmentId)
     }
   }
@@ -48,7 +47,7 @@ const DepartmentType = {
   name: STRING,
   // Relate departments to their employees
   employees: {
-    $Employee () {
+    async $Employee () {
       return employees.find(e => e.departmentId === this.id)
     }
   }
@@ -66,6 +65,11 @@ async function main () {
         $Department () {
           return departments
         }
+      },
+      time: {
+        $INT () {
+          return Date.now()
+        }
       }
     },
     {
@@ -75,6 +79,7 @@ async function main () {
   )
 
   const result = await n.query({
+    time: true,
     departments: {
       id: true,
       name: true,
@@ -93,7 +98,8 @@ async function main () {
       }
     }
   })
-  console.log(JSON.stringify(result, null, 2))
+
+  console.log(util.inspect(result, false, null, true))
 }
 
 main()
