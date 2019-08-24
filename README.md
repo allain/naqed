@@ -8,23 +8,11 @@ Naqed is an experiment to distill GraphQL down to its core idea (Graph Querying,
 
 **Current Status**: It's 1 days old... so it's less than robust, but it does have 100% test coverage if you're into that kind of thing.
 
-## Step 0 - Install
+##  Installation
 
 ``` bash
 npm install --save naqed
 ```
-
-## Example 1 - Querying a static object
-
-TODO
-
-## Example 2 - Querying a dynamic resolver with arguments
-
-TODO
-
-## Example 3 - Adding relationships
-
-TODO
 
 ## Example 4 - Adding typechecking
 
@@ -51,47 +39,77 @@ const departments = [{
     name: 'Dev'
 }]
 
-function loadEmployee({ id }) {
-    return employees.find(e => e.id === id)
-}
-
-function loadEmployeeDepartments() {
-  return departments.find(d => d.id === this.departmentId)
-}
-
-const n = new Naqed({
-    employee: {
-        $: loadEmployee
-        department: {
-            $: loadDepartments
-            __type: {
-                id: ID,
-                name: STRING
-            }
-        }
-        __type: {
-            id: ID,
-            name: STRING,
-            salary: FLOAT,
-            departmentId: STRING,
-        }
+// Setup the complex types
+const EmployeeType = {
+  id: ID,
+  name: STRING,
+  departmentId: STRING,
+  // relate employee to their department
+  department: {
+    async $Department () {
+      return departments.find(d => d.id === this.departmentId)
     }
-})
-```
+  }
+}
 
-## Step 2 - run queries against it
+const DepartmentType = {
+  id: ID,
+  name: STRING,
+  // Relate departments to their employees
+  employees: {
+    async $Employee () {
+      return employees.find(e => e.departmentId === this.id)
+    }
+  }
+}
 
-``` js
-const result = await n.query({
+// Create a Naqed instance
+// 1st argument is resolver spec
+// 2nd argument is a map from Typenames to Type Definitions
+const n = new Naqed(
+  {
+    // Defines a top level resolver called employee which accepts an id as an argument 
     employee: {
-        name: true
+      // This is how the type is specified
+      $Employee ({ id }) {
+        return employees.find(e => e.id === id)
+      }
     },
+    // Defines a top level resolver that returns an array of departments
     departments: {
-        id,
-        name
+      $Department () {
+        return departments
+      }
     }
+  },
+  {
+    Employee: EmployeeType,
+    Department: DepartmentType
+  }
+)
+
+const result = await n.query({
+  departments: {
+    id: true,
+    name: true,
+    employees: {
+      id: true,
+      name: true,
+      salary: true
+    }
+  },
+  employee: {
+    $id: 'e1',
+    id: true,
+    name: true,
+    department: {
+      name: true
+    }
+  }
 })
 
-// .
+  console.log(util.inspect(result, false, null, true))
+}
+
 ```
 
