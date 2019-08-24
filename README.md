@@ -8,4 +8,4 @@ Naqed is an experiment to distill GraphQL down to its core idea (Graph Querying,
 
 ## Current Status
 
-It's 2 days old... so it's less than robust, but it 
+It's 1 days old... so it's less than robust, but it does have 100% test coverage if you're into that kind of thing.
