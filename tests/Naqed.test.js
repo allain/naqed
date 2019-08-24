@@ -75,18 +75,6 @@ it('supports simple dynamic resolver', async () => {
   })
 })
 
-it('throws when dynamic resolver returns something that is not an object', async () => {
-  const n = new Naqed({
-    a: {
-      $ () {
-        return false
-      }
-    }
-  })
-
-  await expect(n.query({ a: true })).rejects.toThrow()
-})
-
 it('querying for missing fields return null', async () => {
   const n = new Naqed({ a: 1, b: 2 })
   expect(await n.query({ a: true, c: true })).toEqual({ a: 1, c: null })
@@ -146,14 +134,14 @@ it('supports passing in context while querying', async () => {
 
 describe('typechecking', () => {
   function buildTypeChecker (type) {
-    return new Naqed(
-      {
-        test ({}, ctx) {
+    return new Naqed({
+      test: {
+        $ ({}, ctx) {
           return ctx
-        }
-      },
-      { test: type }
-    )
+        },
+        __type: type
+      }
+    })
   }
 
   const checks = {
@@ -230,12 +218,12 @@ describe('typechecking', () => {
   })
 
   it('return TypeError when Array is type but non-array given in resolver', async () => {
-    const n = new Naqed(
-      {
-        test: true
-      },
-      { test: [Naqed.types.BOOL] }
-    )
+    const n = new Naqed({
+      test: {
+        $: true,
+        __type: [Naqed.types.BOOL]
+      }
+    })
 
     expect(await n.query({ test: true })).toEqual({
       test: new TypeError('invalid Array')
@@ -274,14 +262,12 @@ describe('typechecking', () => {
   })
 
   it('strips out paths when the typeshape does not mention a path', async () => {
-    const n = new Naqed(
-      {
-        a () {
-          return 'YO'
-        }
+    const n = new Naqed({
+      a: {
+        $: 'YO'
       },
-      { a: Naqed.types.STRING }
-    )
+      __type: { a: Naqed.types.STRING }
+    })
     expect(await n.query({ a: true, b: true })).toEqual({ a: 'YO' })
   })
 
@@ -292,12 +278,12 @@ describe('typechecking', () => {
     const AType = { test: Naqed.types.STRING }
     AType.a = AType
 
-    const n = new Naqed(
-      {
-        a: A
-      },
-      { a: AType }
-    )
+    const n = new Naqed({
+      a: A,
+      __type: {
+        a: AType
+      }
+    })
 
     expect(await n.query({ a: { a: { a: { a: { test: true } } } } })).toEqual({
       a: { a: { a: { a: { test: 'Hello' } } } }

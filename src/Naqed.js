@@ -1,31 +1,52 @@
 const recon = require('./lib/reconstruct')
 
+const isFunction = x => typeof x === 'function'
 const isObject = x => x && !Array.isArray(x) && typeof x === 'object'
 const isUndefined = x => typeof x === 'undefined'
 
 const pluckKeys = require('./lib/pluck-keys')
 
 const extractArgs = pluckKeys(
-  keyName => keyName.startsWith('$') && keyName.substr(1)
+  keyName => keyName.match(/^\$[^A-Z]/) && keyName.substr(1)
+)
+const extractDynamicFn = pluckKeys(
+  keyName => keyName.match(/^\$([A-Z]|$)/) && keyName.substr(1)
 )
 const extractNonArgs = pluckKeys(keyName => !keyName.startsWith('$'))
 
 class Naqed {
-  constructor (spec, typeShape) {
+  constructor (spec, types = {}) {
     this.spec = spec
-    this.typeShape = typeShape
+
+    this.types = types
+
+    this.typeRelations = recon(types, ([typeName, typeSpec]) => [
+      typeName,
+      recon(typeSpec, ([prop, propSpec]) => {
+        if (!isObject(propSpec)) return false
+        const [relatedName, ...extra] = Object.keys(propSpec)
+        if (!relatedName.startsWith('$')) return false
+
+        return [prop, propSpec]
+      })
+    ])
   }
 
   async query (q, ctx = {}) {
-    const resolved = await this._resolveQuery(this.spec, q, ctx, this.typeShape)
-    return this.typeShape
-      ? this._applyTypeShape(this.typeShape, resolved)
+    const resolved = await this._resolveQuery(this.spec, q, ctx)
+
+    return this.spec.__type
+      ? this._applyTypeShape(this.spec.__type, resolved)
       : resolved
   }
 
-  async _resolveQuery (spec, query, ctx, typeShape) {
+  async _resolveQuery (spec, query, ctx) {
     return recon.async(query, async ([queryProp, queryVal]) => {
-      if (queryVal !== true && !isObject(queryVal)) {
+      if (
+        queryVal !== true &&
+        !isObject(queryVal) &&
+        (typeof queryVal !== 'string' || queryVal.startsWith('$'))
+      ) {
         throw new Error('invalid query value: ' + queryVal)
       }
 
@@ -38,18 +59,28 @@ class Naqed {
       if (typeof resolveVal === 'function') {
         resolveVal = resolveVal.apply(spec, [extractArgs(queryVal), ctx])
         queryVal = extractNonArgs(queryVal)
-      } else if (isObject(resolveVal) && resolveVal.$) {
-        // resolver with dynamic shape for results
-        const shape = extractNonArgs(resolveVal)
-        const resolved = await resolveVal.$(extractArgs(queryVal), ctx)
-        if (Array.isArray(resolved)) {
-          resolveVal = resolved.map(obj => Object.setPrototypeOf(obj, shape))
-        } else if (isObject(resolved)) {
-          resolveVal = Object.assign(Object.create(shape), resolved)
-        } else {
-          throw new Error(
-            'dynamic resolver only makes sense with object or arrays of objects'
-          )
+      } else if (isObject(resolveVal)) {
+        const dynamic = extractDynamicFn(resolveVal)
+        if (Object.keys(dynamic).length) {
+          const typeName = Object.keys(dynamic)[0]
+          const dynamicFn = dynamic[typeName]
+          // resolver with dynamic shape for results
+          const shape = typeName
+            ? this.typeRelations[typeName]
+            : extractNonArgs(resolveVal)
+
+          const resolved = await (isFunction(dynamicFn)
+            ? dynamicFn.apply(spec, [extractArgs(queryVal), ctx])
+            : dynamicFn)
+          if (Array.isArray(resolved)) {
+            resolveVal = resolved.map(obj =>
+              isObject(obj) ? Object.assign(Object.create(shape), obj) : obj
+            )
+          } else if (isObject(resolved)) {
+            resolveVal = Object.assign(Object.create(shape), resolved)
+          } else {
+            resolveVal = resolved
+          }
         }
       }
 
@@ -65,6 +96,10 @@ class Naqed {
         } else {
           resolveVal = await this._resolveQuery(resolveVal, queryVal, ctx)
         }
+      }
+
+      if (spec[queryProp].__type) {
+        resolveVal = this._applyTypeShape(spec[queryProp].__type, resolveVal)
       }
 
       return [queryProp, resolveVal]
@@ -86,10 +121,10 @@ class Naqed {
     }
 
     if (typeof typeShape === 'object') {
-      return recon(value, ([prop, val]) =>
-        typeShape[prop]
-          ? [prop, this._applyTypeShape(typeShape[prop], val)]
-          : null
+      return recon(
+        value,
+        ([prop, val]) =>
+          typeShape[prop] && [prop, this._applyTypeShape(typeShape[prop], val)]
       )
     }
 
