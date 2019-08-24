@@ -14,7 +14,13 @@ Naqed is an experiment to distill GraphQL down to its core idea (Graph Querying,
 npm install --save naqed
 ```
 
-## Example 4 - Adding typechecking
+## Complete Example
+
+Demonstrates:
+* Custom complex types
+* Relations between those types
+* Querying
+* Passing Arguments to Resolvers
 
 ``` js
 const Naqed = require('naqed')
