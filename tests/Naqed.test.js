@@ -229,6 +229,19 @@ describe('typechecking', () => {
     })
   })
 
+  it('return TypeError when Array is type but non-array given in resolver', async () => {
+    const n = new Naqed(
+      {
+        test: true
+      },
+      { test: [Naqed.types.BOOL] }
+    )
+
+    expect(await n.query({ test: true })).toEqual({
+      test: new TypeError('invalid Array')
+    })
+  })
+
   it('supports custom scalar types', async () => {
     const n = buildTypeChecker({ name: 'TEST', check: n => n === 5 })
     expect(await n.query({ test: true }, 5)).toEqual({ test: 5 })
@@ -258,6 +271,18 @@ describe('typechecking', () => {
         }
       }
     })
+  })
+
+  it('strips out paths when the typeshape does not mention a path', async () => {
+    const n = new Naqed(
+      {
+        a () {
+          return 'YO'
+        }
+      },
+      { a: Naqed.types.STRING }
+    )
+    expect(await n.query({ a: true, b: true })).toEqual({ a: 'YO' })
   })
 
   it('supports circular types', async () => {
