@@ -1,4 +1,5 @@
 const Naqed = require('../src/Naqed')
+const { BOOL, INT, STRING } = Naqed.types
 
 it('can be created', () => {
   const n = new Naqed({ a: 10, b: () => 20, c: true })
@@ -132,16 +133,81 @@ it('supports passing in context while querying', async () => {
   })
 })
 
-describe('typechecking', () => {
-  function buildTypeChecker (type) {
-    return new Naqed({
+describe('ts2', () => {
+  it('exposes typePrototypes', () => {
+    const TestType = {
+      name: STRING,
+      subtests: {
+        $Test () {
+          return [{ name: 'Sub1' }, { name: 'Sub1' }]
+        }
+      }
+    }
+    const n = new Naqed({
+      $Test: TestType
+    })
+
+    const typeProto = n.typePrototypes.Test
+    expect(typeProto).toBeDefined()
+    expect(Object.keys(typeProto)).toEqual(['subtests'])
+    expect(typeProto.subtests).toEqual(TestType.subtests)
+  })
+
+  it('enforces built in scalars', async () => {
+    const n = new Naqed({
       test: {
-        $ ({}, ctx) {
-          return ctx
-        },
-        __type: type
+        $BOOL () {
+          return 'FAIL'
+        }
       }
     })
+    const result = await n.query({ test: true })
+    expect(result).toEqual({
+      test: new TypeError('invalid BOOL: FAIL')
+    })
+  })
+
+  it('enforces scalar aliases as such', async () => {
+    const n = new Naqed({
+      $SUCCESS: BOOL,
+      test: {
+        $SUCCESS () {
+          return 'FAIL'
+        }
+      }
+    })
+    const result = await n.query({ test: true })
+    expect(result).toEqual({
+      test: new TypeError('invalid SUCCESS: FAIL')
+    })
+  })
+
+  it('returns type error when requested type is not known', async () => {
+    const n = new Naqed({
+      test: {
+        $MISSING () {
+          return 'FAIL'
+        }
+      }
+    })
+    const result = await n.query({ test: true })
+    expect(result).toEqual({
+      test: new TypeError('unknown type: MISSING')
+    })
+  })
+})
+
+describe('typechecking', () => {
+  function buildTypeChecker (type, typeName = type.name) {
+    const spec = {
+      [`$${typeName}`]: type,
+      test: {
+        [`$${typeName}`] ({}, ctx) {
+          return ctx
+        }
+      }
+    }
+    return new Naqed(spec)
   }
 
   const checks = {
@@ -182,7 +248,7 @@ describe('typechecking', () => {
       it(`fails for ${fail.join(', ')} as ${typeName}`, async () => {
         for (const f of fail) {
           expect(await n.query({ test: true }, f)).toMatchObject({
-            test: { message: /^invalid/ }
+            test: { message: `invalid ${typeName}: ${f}` }
           })
         }
       })
@@ -199,8 +265,56 @@ describe('typechecking', () => {
     ])
   })
 
+  it('checks scalars properly', async () => {
+    const n = new Naqed({})
+
+    expect(n._check(true, Naqed.types.BOOL)).toEqual(true)
+    expect(n._check('HUH', Naqed.types.BOOL)).toMatchObject({
+      message: 'invalid BOOL: HUH'
+    })
+  })
+
+  it('checks agains composite object properly', async () => {
+    const n = new Naqed({
+      $Person: {
+        name: STRING
+      }
+    })
+
+    expect(n._check({ name: 'Allain' }, n.types.Person)).toEqual({
+      name: 'Allain'
+    })
+    expect(n._check({ name: false }, n.types.Person)).toEqual({
+      name: new TypeError('invalid STRING: false')
+    })
+  })
+
+  it('allows checking against dynamic scalar', async () => {
+    const n = new Naqed({
+      test: {
+        $BOOL ({}, ctx) {
+          return ctx
+        }
+      }
+    })
+
+    expect(await n.query({ test: true }, true)).toEqual({
+      test: true
+    })
+
+    expect(await n.query({ test: true }, 'FAIL')).toEqual({
+      test: new TypeError('invalid BOOL: FAIL')
+    })
+  })
+
   it('allows typechecking using Array', async () => {
-    const n = buildTypeChecker([Naqed.types.BOOL])
+    const n = new Naqed({
+      test: {
+        '$BOOL[]' ({}, ctx) {
+          return ctx
+        }
+      }
+    })
     expect(await n.query({ test: true }, [true, false])).toEqual({
       test: [true, false]
     })
@@ -210,23 +324,17 @@ describe('typechecking', () => {
     })
   })
 
-  it('throws if typeshape is not one of the provided', async () => {
-    const n = buildTypeChecker(Boolean)
-    await expect(n.query({ test: true }, true)).rejects.toMatchObject({
-      message: /^invalid typeshape provided/
-    })
-  })
-
   it('return TypeError when Array is type but non-array given in resolver', async () => {
     const n = new Naqed({
       test: {
-        $: true,
-        __type: [Naqed.types.BOOL]
+        '$BOOL[]' () {
+          return true
+        }
       }
     })
 
     expect(await n.query({ test: true })).toEqual({
-      test: new TypeError('invalid Array')
+      test: new TypeError('invalid Array: true')
     })
   })
 
@@ -241,10 +349,13 @@ describe('typechecking', () => {
   })
 
   it('supports custom object types', async () => {
-    const n = buildTypeChecker({
-      a: Naqed.types.INT,
-      b: Naqed.types.BOOL
-    })
+    const n = buildTypeChecker(
+      {
+        a: INT,
+        b: BOOL
+      },
+      'CUSTOM'
+    )
     expect(
       await n.query({ test: { a: true, b: true } }, { a: 1, b: true })
     ).toEqual({
@@ -261,27 +372,28 @@ describe('typechecking', () => {
     })
   })
 
-  it('strips out paths when the typeshape does not mention a path', async () => {
+  it('retains out props when type says nothing about them', async () => {
     const n = new Naqed({
       a: {
-        $: 'YO'
-      },
-      __type: { a: Naqed.types.STRING }
+        $STRING: 'YO'
+      }
     })
-    expect(await n.query({ a: true, b: true })).toEqual({ a: 'YO' })
+    expect(await n.query({ a: true, b: true })).toEqual({ a: 'YO', b: null })
   })
 
   it('supports circular types', async () => {
     const A = { test: 'Hello' }
     A.a = A
 
-    const AType = { test: Naqed.types.STRING }
+    const AType = { test: STRING }
     AType.a = AType
 
     const n = new Naqed({
-      a: A,
-      __type: {
-        a: AType
+      $A: AType,
+      a: {
+        $A () {
+          return A
+        }
       }
     })
 

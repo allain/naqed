@@ -6,9 +6,17 @@ const objectFromEntries = entries =>
 
 const reconstruct = (obj, fn) =>
   objectFromEntries(
-    Object.entries(obj)
-      .map(fn)
-      .filter(x => x)
+    Object.entries(obj).reduce((newEntries, entry) => {
+      newEntry = fn(entry)
+      if (!newEntry) return newEntries
+
+      if (newEntry === true) {
+        newEntries.push(entry)
+      } else {
+        newEntries.push(newEntry)
+      }
+      return newEntries
+    }, [])
   )
 
 reconstruct.async = async (obj, fn) =>

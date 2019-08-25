@@ -14,16 +14,32 @@ const extractDynamicFn = pluckKeys(
 )
 const extractNonArgs = pluckKeys(keyName => !keyName.startsWith('$'))
 
+const isScalarType = obj => Object.values(Naqed.types).includes(obj)
+
 class Naqed {
-  constructor (spec, types = {}) {
-    this.spec = spec
+  constructor (spec = {}) {
+    this.spec = recon(spec, ([key, val]) => !key.startsWith('$'))
+    this.types = Object.assign(
+      recon(spec, ([key, val]) => {
+        if (!key.startsWith('$')) return false
 
-    this.types = types
+        if (isScalarType(val)) {
+          // this is an alias
+          val = Object.assign({}, val, { name: key.substr(1) })
+        }
 
-    this.typeRelations = recon(types, ([typeName, typeSpec]) => [
+        return [key.substr(1), val]
+      }),
+      Naqed.types
+    )
+
+    this.typePrototypes = recon(this.types, ([typeName, typeSpec]) => [
       typeName,
       recon(typeSpec, ([prop, propSpec]) => {
+        if (isFunction(propSpec)) return true
+        if (isScalarType(propSpec)) return false
         if (!isObject(propSpec)) return false
+
         const [relatedName, ...extra] = Object.keys(propSpec)
         if (!relatedName.startsWith('$')) return false
 
@@ -33,15 +49,11 @@ class Naqed {
   }
 
   async query (q, ctx = {}) {
-    const resolved = await this._resolveQuery(this.spec, q, ctx)
-
-    return this.spec.__type
-      ? this._applyTypeShape(this.spec.__type, resolved)
-      : resolved
+    return await this._resolveQuery(this.spec, q, ctx)
   }
 
   async _resolveQuery (spec, query, ctx) {
-    return recon.async(query, async ([queryProp, queryVal]) => {
+    const resolved = await recon.async(query, async ([queryProp, queryVal]) => {
       if (
         queryVal !== true &&
         !isObject(queryVal) &&
@@ -62,10 +74,14 @@ class Naqed {
       } else if (isObject(resolveVal)) {
         const dynamic = extractDynamicFn(resolveVal)
         if (Object.keys(dynamic).length) {
-          const typeName = Object.keys(dynamic)[0]
-          const dynamicFn = dynamic[typeName]
+          const typeSpec = Object.keys(dynamic)[0]
+          const [typeName, isArray] = typeSpec.endsWith('[]')
+            ? [typeSpec.replace(/\[\]$/, ''), true]
+            : [typeSpec, false]
+
+          const dynamicFn = dynamic[typeSpec]
           const shape = typeName
-            ? this.typeRelations[typeName]
+            ? this.typePrototypes[typeName]
             : extractNonArgs(resolveVal)
 
           const resolved = await (isFunction(dynamicFn)
@@ -80,12 +96,6 @@ class Naqed {
             resolveVal = Object.assign(Object.create(shape), resolved)
           } else {
             resolveVal = resolved
-          }
-
-          if (typeName) {
-            // TODO: type should be checked after dynamic creation, this makes relations fail atm
-            // const type = Naqed.types[typeName] || this.types[typeName]
-            // resolveVal = this._applyTypeShape(type, resolveVal)
           }
         }
       }
@@ -104,37 +114,48 @@ class Naqed {
         }
       }
 
-      if (spec[queryProp].__type) {
-        resolveVal = this._applyTypeShape(spec[queryProp].__type, resolveVal)
-      }
-
       return [queryProp, resolveVal]
     })
+
+    return this._check(resolved, this.spec)
   }
 
-  // Replaces all type mismatches with new TypeError('invalid TYPENAME: VALUE')
-  _applyTypeShape (typeShape, value) {
-    if (Array.isArray(typeShape)) {
-      return Array.isArray(value)
-        ? value.map(v => this._applyTypeShape(typeShape[0], v))
-        : new TypeError('invalid Array')
+  _check (value, spec) {
+    if (isObject(spec)) {
+      if (spec.check) {
+        if (spec.check(value)) {
+          return value
+        }
+        return new TypeError(`invalid ${spec.name}: ${value}`)
+      }
+
+      const dynamic = extractDynamicFn(spec)
+      if (Object.keys(dynamic).length) {
+        const typeSpec = Object.keys(dynamic)[0]
+        const [typeName, isArray] = typeSpec.endsWith('[]')
+          ? [typeSpec.replace(/\[\]$/, ''), true]
+          : [typeSpec, false]
+        const type = this.types[typeName]
+        if (typeName && !type) return new TypeError(`unknown type: ${typeName}`)
+
+        if (isArray) {
+          return Array.isArray(value)
+            ? value.map(val => this._check(val, type))
+            : new TypeError('invalid Array: ' + value)
+        }
+
+        return this._check(value, type)
+      }
+
+      return recon(value, ([prop, val]) => {
+        if (spec[prop]) return [prop, this._check(val, spec[prop])]
+
+        // If the object does not say anything about this prop, then pass it through
+        return [prop, val]
+      })
     }
 
-    if (typeShape.check) {
-      return typeShape.check(value)
-        ? value
-        : new TypeError(`invalid ${typeShape.name}: ${value}`)
-    }
-
-    if (typeof typeShape === 'object') {
-      return recon(
-        value,
-        ([prop, val]) =>
-          typeShape[prop] && [prop, this._applyTypeShape(typeShape[prop], val)]
-      )
-    }
-
-    throw new TypeError('invalid typeshape provided: ' + typeShape)
+    return value
   }
 }
 
