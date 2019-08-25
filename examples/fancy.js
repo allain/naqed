@@ -48,35 +48,32 @@ const DepartmentType = {
   // Relate departments to their employees
   employees: {
     async $Employee () {
-      return employees.find(e => e.departmentId === this.id)
+      return employees.filter(e => e.departmentId === this.id)
     }
   }
 }
 
 async function main () {
-  const n = new Naqed(
-    {
-      employee: {
-        $Employee ({ id }) {
-          return employees.find(e => e.id === id)
-        }
-      },
-      departments: {
-        $Department () {
-          return departments
-        }
-      },
-      time: {
-        $INT () {
-          return Date.now()
-        }
+  const n = new Naqed({
+    // Defining custom types
+    $Employee: EmployeeType,
+    $Department: DepartmentType,
+    employee: {
+      $Employee ({ id }) {
+        return employees.find(e => e.id === id)
       }
     },
-    {
-      Employee: EmployeeType,
-      Department: DepartmentType
+    departments: {
+      $Department () {
+        return departments
+      }
+    },
+    time: {
+      $INT () {
+        return Date.now()
+      }
     }
-  )
+  })
 
   const result = await n.query({
     time: true,
