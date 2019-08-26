@@ -133,7 +133,7 @@ it('supports passing in context while querying', async () => {
   })
 })
 
-describe('ts2', () => {
+describe('type checking', () => {
   it('exposes typePrototypes', () => {
     const TestType = {
       name: STRING,
@@ -195,9 +195,25 @@ describe('ts2', () => {
       test: new TypeError('unknown type: MISSING')
     })
   })
-})
 
-describe('typechecking', () => {
+  it('supports type checking resolver arguments', async () => {
+    const n = new Naqed({
+      test: {
+        $ ({ a }) {
+          return a + 1
+        },
+        $a: INT
+      }
+    })
+    expect(await n.query({ test: { $a: 1 } })).toEqual({
+      test: 2
+    })
+
+    expect(await n.query({ test: { $a: 'TEST' } })).toEqual({
+      test: new TypeError('invalid INT: TEST')
+    })
+  })
+
   function buildTypeChecker (type, typeName = type.name) {
     const spec = {
       [`$${typeName}`]: type,

@@ -9,8 +9,18 @@ const pluckKeys = require('./lib/pluck-keys')
 const extractArgs = pluckKeys(
   keyName => keyName.match(/^\$[^A-Z]/) && keyName.substr(1)
 )
+
+const extractArgTypes = (args, spec) =>
+  Object.keys(args).reduce((argTypes, argName) => {
+    const argType = spec[`$${argName}`]
+    if (argType) {
+      argTypes[argName] = argType
+    }
+    return argTypes
+  }, {})
+
 const extractDynamicFn = pluckKeys(
-  keyName => keyName.match(/^\$([A-Z]|$)/) && keyName.substr(1)
+  keyName => keyName.match(/^\$([A-Z]|$)/i) && keyName.substr(1)
 )
 const extractNonArgs = pluckKeys(keyName => !keyName.startsWith('$'))
 
@@ -18,8 +28,9 @@ const isScalarType = obj => Object.values(Naqed.types).includes(obj)
 
 class Naqed {
   constructor (spec = {}) {
+    // Remove keys that start with $ since they are used to speficy custom types
     this.spec = recon(spec, ([key, val]) => !key.startsWith('$'))
-    this.types = Object.assign(
+    const customTypes = Object.assign(
       recon(spec, ([key, val]) => {
         if (!key.startsWith('$')) return false
 
@@ -29,11 +40,12 @@ class Naqed {
         }
 
         return [key.substr(1), val]
-      }),
-      Naqed.types
+      })
     )
 
-    this.typePrototypes = recon(this.types, ([typeName, typeSpec]) => [
+    this.types = Object.assign({}, customTypes, Naqed.types)
+
+    this.typePrototypes = recon(customTypes, ([typeName, typeSpec]) => [
       typeName,
       recon(typeSpec, ([prop, propSpec]) => {
         if (isFunction(propSpec)) return true
@@ -64,15 +76,14 @@ class Naqed {
 
       let resolveVal = spec[queryProp]
 
-      if (isUndefined(resolveVal)) {
-        return [queryProp, null]
-      }
+      if (isUndefined(resolveVal)) return [queryProp, null]
 
       if (typeof resolveVal === 'function') {
         resolveVal = resolveVal.apply(spec, [extractArgs(queryVal), ctx])
         queryVal = extractNonArgs(queryVal)
       } else if (isObject(resolveVal)) {
         const dynamic = extractDynamicFn(resolveVal)
+
         if (Object.keys(dynamic).length) {
           const typeSpec = Object.keys(dynamic)[0]
           const [typeName, isArray] = typeSpec.endsWith('[]')
@@ -84,9 +95,20 @@ class Naqed {
             ? this.typePrototypes[typeName]
             : extractNonArgs(resolveVal)
 
-          const resolved = await (isFunction(dynamicFn)
-            ? dynamicFn.apply(spec, [extractArgs(queryVal), ctx])
-            : dynamicFn)
+          let resolved = dynamicFn
+          if (isFunction(dynamicFn)) {
+            const args = extractArgs(queryVal)
+            const argsTypes = extractArgTypes(args, spec[queryProp])
+            for (const [argName, type] of Object.entries(argsTypes)) {
+              const checkedArg = this._check(args[argName], type)
+              if (checkedArg instanceof TypeError) {
+                return [queryProp, checkedArg]
+              }
+            }
+
+            resolved = dynamicFn.apply(spec, [args, ctx])
+            queryVal = recon(queryVal, ([prop]) => prop[0] !== '$')
+          }
 
           if (Array.isArray(resolved)) {
             resolveVal = resolved.map(obj =>
@@ -129,7 +151,7 @@ class Naqed {
     const checkedDynamic = this._checkDynamicResolver(value, spec)
     if (checkedDynamic !== null) return checkedDynamic
 
-    return this._checkComplexType(value, spec)
+    return this._checkStructuredType(value, spec)
   }
 
   _checkScalar (value, spec) {
@@ -148,6 +170,7 @@ class Naqed {
     const [typeName, isArray] = typeSpec.endsWith('[]')
       ? [typeSpec.replace(/\[\]$/, ''), true]
       : [typeSpec, false]
+
     const type = this.types[typeName]
     if (typeName && !type) return new TypeError(`unknown type: ${typeName}`)
 
@@ -160,7 +183,7 @@ class Naqed {
     return this._check(value, type)
   }
 
-  _checkComplexType (value, spec) {
+  _checkStructuredType (value, spec) {
     return recon(value, ([prop, val]) => {
       if (spec[prop]) return [prop, this._check(val, spec[prop])]
 
