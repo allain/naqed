@@ -79,7 +79,7 @@ async function main () {
   })
 
   // run a query on it
-  const result = await n.query({
+  const result = await n.request({
     time: true,
     departments: {
       id: true,

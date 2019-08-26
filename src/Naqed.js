@@ -60,7 +60,7 @@ class Naqed {
     ])
   }
 
-  async query (q, ctx = {}) {
+  async request (q, ctx = {}) {
     return await this._resolveQuery(this.spec, q, ctx)
   }
 

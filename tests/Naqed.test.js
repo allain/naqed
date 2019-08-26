@@ -4,18 +4,18 @@ const { BOOL, INT, STRING } = Naqed.types
 it('can be created', () => {
   const n = new Naqed({ a: 10, b: () => 20, c: true })
   expect(n).toBeDefined()
-  expect(n.query).toBeInstanceOf(Function)
+  expect(n.request).toBeInstanceOf(Function)
 })
 
 it('throws when given an invalid value for a query', async () => {
   const n = new Naqed({ a: 10, b: () => 20, c: true })
-  await expect(n.query({ a: false })).rejects.toThrow()
-  await expect(n.query({ a: [] })).rejects.toThrow()
+  await expect(n.request({ a: false })).rejects.toThrow()
+  await expect(n.request({ a: [] })).rejects.toThrow()
 })
 
 it('can be queried with object', async () => {
   const n = new Naqed({ a: 10, b: () => 20, c: true })
-  const result = await n.query({ a: true, b: true })
+  const result = await n.request({ a: true, b: true })
   expect(result.a).toEqual(10)
   expect(result.b).toEqual(20)
   expect(result.c).toBeUndefined()
@@ -23,7 +23,7 @@ it('can be queried with object', async () => {
 
 it('works when resolving to an array of objects', async () => {
   const n = new Naqed({ a: [{ b: 1, c: 2 }, { b: 2, c: 3 }] })
-  const result = await n.query({ a: { b: true } })
+  const result = await n.request({ a: { b: true } })
   expect(result).toEqual({ a: [{ b: 1 }, { b: 2 }] })
 })
 
@@ -37,7 +37,7 @@ it('supports circular resolvers', async () => {
     a: A
   })
 
-  expect(await n.query({ a: { b: { a: { b: { test: true } } } } })).toEqual({
+  expect(await n.request({ a: { b: { a: { b: { test: true } } } } })).toEqual({
     a: { b: { a: { b: { test: 'Hello' } } } }
   })
 })
@@ -54,7 +54,7 @@ it('supports simple dynamic resolution to object', async () => {
     }
   })
 
-  expect(await n.query({ a: { n: true, plus: true } })).toEqual({
+  expect(await n.request({ a: { n: true, plus: true } })).toEqual({
     a: { n: 1, plus: 2 }
   })
 })
@@ -71,19 +71,19 @@ it('supports simple dynamic resolver', async () => {
     }
   })
 
-  expect(await n.query({ a: { n: true, plus: true } })).toEqual({
+  expect(await n.request({ a: { n: true, plus: true } })).toEqual({
     a: [{ n: 1, plus: 2 }, { n: 2, plus: 3 }]
   })
 })
 
 it('querying for missing fields return null', async () => {
   const n = new Naqed({ a: 1, b: 2 })
-  expect(await n.query({ a: true, c: true })).toEqual({ a: 1, c: null })
+  expect(await n.request({ a: true, c: true })).toEqual({ a: 1, c: null })
 })
 
 it('can query for a whole object', async () => {
   const n = new Naqed({ a: { b: { c: 20 } } })
-  const result = await n.query({ a: true })
+  const result = await n.request({ a: true })
   expect(result.a).toEqual({ b: { c: 20 } })
 })
 
@@ -98,7 +98,7 @@ it('unrolls async paths', async () => {
     }
   })
 
-  await expect(n.query({ a: { b: true } })).resolves.toEqual({ a: { b: 10 } })
+  await expect(n.request({ a: { b: true } })).resolves.toEqual({ a: { b: 10 } })
 })
 
 it('can pass args', async () => {
@@ -107,7 +107,7 @@ it('can pass args', async () => {
       return a + b
     }
   })
-  expect(await n.query({ add: { $a: 1, $b: 2 } })).toEqual({ add: 3 })
+  expect(await n.request({ add: { $a: 1, $b: 2 } })).toEqual({ add: 3 })
 })
 
 it('can execute on results of resolver', async () => {
@@ -116,7 +116,7 @@ it('can execute on results of resolver', async () => {
       return { sum: a + b }
     }
   })
-  expect(await n.query({ add: { $a: 1, $b: 2 } })).toEqual({
+  expect(await n.request({ add: { $a: 1, $b: 2 } })).toEqual({
     add: { sum: 3 }
   })
 })
@@ -128,7 +128,7 @@ it('supports passing in context while querying', async () => {
     }
   })
 
-  expect(await n.query({ test: true }, { a: 100 })).toEqual({
+  expect(await n.request({ test: true }, { a: 100 })).toEqual({
     test: { a: 100 }
   })
 })
@@ -161,7 +161,7 @@ describe('type checking', () => {
         }
       }
     })
-    const result = await n.query({ test: true })
+    const result = await n.request({ test: true })
     expect(result).toEqual({
       test: new TypeError('invalid BOOL: FAIL')
     })
@@ -176,7 +176,7 @@ describe('type checking', () => {
         }
       }
     })
-    const result = await n.query({ test: true })
+    const result = await n.request({ test: true })
     expect(result).toEqual({
       test: new TypeError('invalid SUCCESS: FAIL')
     })
@@ -190,7 +190,7 @@ describe('type checking', () => {
         }
       }
     })
-    const result = await n.query({ test: true })
+    const result = await n.request({ test: true })
     expect(result).toEqual({
       test: new TypeError('unknown type: MISSING')
     })
@@ -205,11 +205,11 @@ describe('type checking', () => {
         $a: INT
       }
     })
-    expect(await n.query({ test: { $a: 1 } })).toEqual({
+    expect(await n.request({ test: { $a: 1 } })).toEqual({
       test: 2
     })
 
-    expect(await n.query({ test: { $a: 'TEST' } })).toEqual({
+    expect(await n.request({ test: { $a: 'TEST' } })).toEqual({
       test: new TypeError('invalid INT: TEST')
     })
   })
@@ -255,7 +255,7 @@ describe('type checking', () => {
 
       it(`succeeds for ${success.join(', ')} as ${typeName}`, async () => {
         for (const s of success) {
-          expect(await n.query({ test: true }, s)).toEqual({
+          expect(await n.request({ test: true }, s)).toEqual({
             test: s
           })
         }
@@ -263,7 +263,7 @@ describe('type checking', () => {
 
       it(`fails for ${fail.join(', ')} as ${typeName}`, async () => {
         for (const f of fail) {
-          expect(await n.query({ test: true }, f)).toMatchObject({
+          expect(await n.request({ test: true }, f)).toMatchObject({
             test: { message: `invalid ${typeName}: ${f}` }
           })
         }
@@ -314,11 +314,11 @@ describe('type checking', () => {
       }
     })
 
-    expect(await n.query({ test: true }, true)).toEqual({
+    expect(await n.request({ test: true }, true)).toEqual({
       test: true
     })
 
-    expect(await n.query({ test: true }, 'FAIL')).toEqual({
+    expect(await n.request({ test: true }, 'FAIL')).toEqual({
       test: new TypeError('invalid BOOL: FAIL')
     })
   })
@@ -331,11 +331,11 @@ describe('type checking', () => {
         }
       }
     })
-    expect(await n.query({ test: true }, [true, false])).toEqual({
+    expect(await n.request({ test: true }, [true, false])).toEqual({
       test: [true, false]
     })
 
-    expect(await n.query({ test: true }, ['FAIL'])).toEqual({
+    expect(await n.request({ test: true }, ['FAIL'])).toEqual({
       test: [new TypeError('invalid BOOL: FAIL')]
     })
   })
@@ -349,15 +349,15 @@ describe('type checking', () => {
       }
     })
 
-    expect(await n.query({ test: true })).toEqual({
+    expect(await n.request({ test: true })).toEqual({
       test: new TypeError('invalid Array: true')
     })
   })
 
   it('supports custom scalar types', async () => {
     const n = buildTypeChecker({ name: 'TEST', check: n => n === 5 })
-    expect(await n.query({ test: true }, 5)).toEqual({ test: 5 })
-    expect(await n.query({ test: true }, 10)).toMatchObject({
+    expect(await n.request({ test: true }, 5)).toEqual({ test: 5 })
+    expect(await n.request({ test: true }, 10)).toMatchObject({
       test: {
         message: /^invalid TEST: 10/
       }
@@ -373,12 +373,12 @@ describe('type checking', () => {
       'CUSTOM'
     )
     expect(
-      await n.query({ test: { a: true, b: true } }, { a: 1, b: true })
+      await n.request({ test: { a: true, b: true } }, { a: 1, b: true })
     ).toEqual({
       test: { a: 1, b: true }
     })
     expect(
-      await n.query({ test: { a: true, b: true } }, { a: 20, b: 'BAD' })
+      await n.request({ test: { a: true, b: true } }, { a: 20, b: 'BAD' })
     ).toMatchObject({
       test: {
         b: {
@@ -394,7 +394,7 @@ describe('type checking', () => {
         $STRING: 'YO'
       }
     })
-    expect(await n.query({ a: true, b: true })).toEqual({ a: 'YO', b: null })
+    expect(await n.request({ a: true, b: true })).toEqual({ a: 'YO', b: null })
   })
 
   it('supports circular types', async () => {
@@ -413,8 +413,10 @@ describe('type checking', () => {
       }
     })
 
-    expect(await n.query({ a: { a: { a: { a: { test: true } } } } })).toEqual({
-      a: { a: { a: { a: { test: 'Hello' } } } }
-    })
+    expect(await n.request({ a: { a: { a: { a: { test: true } } } } })).toEqual(
+      {
+        a: { a: { a: { a: { test: 'Hello' } } } }
+      }
+    )
   })
 })

@@ -8,10 +8,28 @@ Naqed is an **experiment** to strip down all of the abstraction around GraphQL.
 * It has optional types
 * It supports defining custom types (and scalars) in a simple way.
 
-##  Installation
+## Installation
 
-``` bash
+```bash
 npm install --save naqed
+```
+
+## Type-less Usage
+
+```js
+const Naqed = require('naqed')
+
+// Naqed receives a resolver graph
+const n = new Naqed({
+  now() {
+    return Date.now()
+  }
+})
+
+// the instance can be queried
+const result = await n.request({now: true})
+
+console.log(result) // result contains {now: TIMESTAMP}
 ```
 
 ## Examples

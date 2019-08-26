@@ -40,7 +40,7 @@ async function main () {
     }
   })
 
-  const result = await n.query({
+  const result = await n.request({
     time: true,
     employee: {
       $id: 'e1', // give the employee resolves its id argument
