@@ -48,7 +48,7 @@ const DepartmentType = {
   name: STRING,
   // Relate departments to their employees
   employees: {
-    async $Employee () {
+    async '$Employee[]' () {
       return employees.filter(e => e.departmentId === this.id)
     }
   }
@@ -63,10 +63,11 @@ async function main () {
     employee: {
       $Employee ({ id }) {
         return employees.find(e => e.id === id)
-      }
+      },
+      $id: STRING
     },
     departments: {
-      $Department () {
+      '$Department[]' () {
         return departments
       }
     },

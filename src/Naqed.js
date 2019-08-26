@@ -106,7 +106,7 @@ class Naqed {
               }
             }
 
-            resolved = dynamicFn.apply(spec, [args, ctx])
+            resolved = await dynamicFn.apply(spec, [args, ctx])
             queryVal = recon(queryVal, ([prop]) => prop[0] !== '$')
           }
 
@@ -143,6 +143,7 @@ class Naqed {
   }
 
   _check (value, spec) {
+    if (value instanceof TypeError) return value
     if (!isObject(spec)) return value
 
     const checkedScalar = this._checkScalar(value, spec)
