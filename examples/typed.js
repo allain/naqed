@@ -1,5 +1,5 @@
 const util = require('util')
-const Naqed = require('../src/Naqed')
+const Naqed = require('naqed')
 const { ID, INT, STRING, FLOAT } = Naqed.types
 
 const employees = [

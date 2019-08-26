@@ -1,0 +1,7 @@
+{
+  "name": "examples",
+  "license": "ISC",
+  "dependencies": {
+    "naqed": "^0.1.0"
+  }
+}
