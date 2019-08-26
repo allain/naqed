@@ -29,7 +29,6 @@ const departments = [
 
 async function main () {
   const n = new Naqed({
-    // Defining custom types
     employee ({ id }) {
       return employees.find(e => e.id === id)
     },
@@ -43,15 +42,15 @@ async function main () {
 
   const result = await n.query({
     time: true,
-    departments: {
-      id: true,
-      name: true
-    },
     employee: {
-      $id: 'e1',
+      $id: 'e1', // give the employee resolves its id argument
       id: true,
       name: true,
       departmentId: true
+    },
+    departments: {
+      id: true,
+      name: true
     }
   })
 

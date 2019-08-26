@@ -121,41 +121,52 @@ class Naqed {
   }
 
   _check (value, spec) {
-    if (isObject(spec)) {
-      if (spec.check) {
-        if (spec.check(value)) {
-          return value
-        }
-        return new TypeError(`invalid ${spec.name}: ${value}`)
-      }
+    if (!isObject(spec)) return value
 
-      const dynamic = extractDynamicFn(spec)
-      if (Object.keys(dynamic).length) {
-        const typeSpec = Object.keys(dynamic)[0]
-        const [typeName, isArray] = typeSpec.endsWith('[]')
-          ? [typeSpec.replace(/\[\]$/, ''), true]
-          : [typeSpec, false]
-        const type = this.types[typeName]
-        if (typeName && !type) return new TypeError(`unknown type: ${typeName}`)
+    const checkedScalar = this._checkScalar(value, spec)
+    if (checkedScalar !== null) return checkedScalar
 
-        if (isArray) {
-          return Array.isArray(value)
-            ? value.map(val => this._check(val, type))
-            : new TypeError('invalid Array: ' + value)
-        }
+    const checkedDynamic = this._checkDynamicResolver(value, spec)
+    if (checkedDynamic !== null) return checkedDynamic
 
-        return this._check(value, type)
-      }
+    return this._checkComplexType(value, spec)
+  }
 
-      return recon(value, ([prop, val]) => {
-        if (spec[prop]) return [prop, this._check(val, spec[prop])]
+  _checkScalar (value, spec) {
+    if (!spec.check) return null
 
-        // If the object does not say anything about this prop, then pass it through
-        return [prop, val]
-      })
+    return spec.check(value)
+      ? value
+      : new TypeError(`invalid ${spec.name}: ${value}`)
+  }
+
+  _checkDynamicResolver (value, spec) {
+    const dynamic = extractDynamicFn(spec)
+    if (!Object.keys(dynamic).length) return null
+
+    const typeSpec = Object.keys(dynamic)[0]
+    const [typeName, isArray] = typeSpec.endsWith('[]')
+      ? [typeSpec.replace(/\[\]$/, ''), true]
+      : [typeSpec, false]
+    const type = this.types[typeName]
+    if (typeName && !type) return new TypeError(`unknown type: ${typeName}`)
+
+    if (isArray) {
+      return Array.isArray(value)
+        ? value.map(val => this._check(val, type))
+        : new TypeError('invalid Array: ' + value)
     }
 
-    return value
+    return this._check(value, type)
+  }
+
+  _checkComplexType (value, spec) {
+    return recon(value, ([prop, val]) => {
+      if (spec[prop]) return [prop, this._check(val, spec[prop])]
+
+      // If the object does not say anything about this prop, then pass it through
+      return [prop, val]
+    })
   }
 }
 

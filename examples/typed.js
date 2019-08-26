@@ -29,6 +29,7 @@ const departments = [
 ]
 
 // Setup the complex types
+
 const EmployeeType = {
   id: ID,
   name: STRING,
@@ -54,6 +55,7 @@ const DepartmentType = {
 }
 
 async function main () {
+  // Define the Naqed instance
   const n = new Naqed({
     // Defining custom types
     $Employee: EmployeeType,
@@ -75,6 +77,7 @@ async function main () {
     }
   })
 
+  // run a query on it
   const result = await n.query({
     time: true,
     departments: {
