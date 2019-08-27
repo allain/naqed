@@ -82,7 +82,7 @@ class Naqed {
 
         if (Object.keys(dynamic).length) {
           const typeSpec = Object.keys(dynamic)[0]
-          const [typeName, isArray] = typeSpec.endsWith('[]')
+          const [typeName] = typeSpec.endsWith('[]')
             ? [typeSpec.replace(/\[\]$/, ''), true]
             : [typeSpec, false]
 
@@ -93,6 +93,7 @@ class Naqed {
 
           let resolved = dynamicFn
           if (isFunction(dynamicFn)) {
+            // Check query args against types
             const args = extractArgs(queryVal)
             const argsTypes = extractArgTypes(args, spec[queryProp])
             for (const [argName, type] of Object.entries(argsTypes)) {
@@ -103,6 +104,8 @@ class Naqed {
             }
 
             resolved = await dynamicFn.apply(spec, [args, ctx])
+
+            // Anything non-meta on the queryVal needs to be plucked from the response still
             queryVal = recon(queryVal, ([prop]) => prop[0] !== '$')
           }
 
