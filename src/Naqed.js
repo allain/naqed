@@ -27,7 +27,7 @@ const extractNonArgs = pluckKeys(keyName => !keyName.startsWith('$'))
 const isScalarType = obj => Object.values(Naqed.types).includes(obj)
 
 class Naqed {
-  constructor (spec = {}) {
+  constructor (spec) {
     // Remove keys that start with $ since they are used to speficy custom types
     this.spec = recon(spec, ([key, val]) => !key.startsWith('$'))
     const customTypes = Object.assign(
@@ -66,11 +66,7 @@ class Naqed {
 
   async _resolveQuery (spec, query, ctx) {
     const resolved = await recon.async(query, async ([queryProp, queryVal]) => {
-      if (
-        queryVal !== true &&
-        !isObject(queryVal) &&
-        (typeof queryVal !== 'string' || queryVal.startsWith('$'))
-      ) {
+      if (queryVal !== true && !isObject(queryVal)) {
         throw new Error('invalid query value: ' + queryVal)
       }
 

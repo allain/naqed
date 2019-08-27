@@ -214,6 +214,23 @@ describe('type checking', () => {
     })
   })
 
+  it('type checking resolver arguments is optional', async () => {
+    const n = new Naqed({
+      test: {
+        $ ({ a }) {
+          return a + 1
+        }
+      }
+    })
+    expect(await n.request({ test: { $a: 1 } })).toEqual({
+      test: 2
+    })
+
+    expect(await n.request({ test: { $a: 'TEST' } })).toEqual({
+      test: 'TEST1'
+    })
+  })
+
   function buildTypeChecker (type, typeName = type.name) {
     const spec = {
       [`$${typeName}`]: type,

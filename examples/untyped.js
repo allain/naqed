@@ -54,7 +54,7 @@ async function main () {
     }
   })
 
-  console.log(util.inspect(result, false, null, true))
+  console.log(result)
 }
 
 main()
