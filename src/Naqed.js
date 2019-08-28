@@ -49,6 +49,8 @@ class Naqed {
       })
     )
 
+    this.customTypes = customTypes
+
     this.types = Object.assign({}, customTypes, Naqed.types)
 
     this.typePrototypes = recon(customTypes, ([typeName, typeSpec]) => [
@@ -236,6 +238,13 @@ class Naqed {
 
   _check (value, spec) {
     if (value instanceof TypeError) return value
+    if (Array.isArray(spec)) {
+      if (Array.isArray(value)) {
+        return value.map(val => this._check(val, spec[0]))
+      }
+
+      return new TypeError('invalid Array: ' + value)
+    }
     if (!isObject(spec)) return value
 
     const checkedScalar = this._checkScalar(value, spec)

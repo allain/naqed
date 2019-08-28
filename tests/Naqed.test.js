@@ -360,6 +360,46 @@ describe('type checking', () => {
     })
   })
 
+  it('allows typechecking using Array for field', async () => {
+    const n = new Naqed({
+      $A: {
+        tags: [STRING]
+      },
+      test: {
+        $A ({}, ctx) {
+          return ctx
+        }
+      }
+    })
+    expect(await n.request({ test: true }, { tags: ['a', 'b'] })).toEqual({
+      test: { tags: ['a', 'b'] }
+    })
+
+    expect(await n.request({ test: true }, { tags: 'FAIL' })).toEqual({
+      test: { tags: new TypeError('invalid Array: FAIL') }
+    })
+  })
+
+  it.skip('allows typechecking using "Type[]" for field', async () => {
+    const n = new Naqed({
+      $A: {
+        tags: 'STRING[]'
+      },
+      test: {
+        $A ({}, ctx) {
+          return ctx
+        }
+      }
+    })
+    expect(await n.request({ test: true }, { tags: ['a', 'b'] })).toEqual({
+      test: { tags: ['a', 'b'] }
+    })
+
+    expect(await n.request({ test: true }, { tags: 'FAIL' })).toEqual({
+      test: { tags: new TypeError('invalid Array: FAIL') }
+    })
+  })
+
   it('return TypeError when Array is type but non-array given in resolver', async () => {
     const n = new Naqed({
       test: {
