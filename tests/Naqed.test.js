@@ -1,6 +1,9 @@
 const Naqed = require('../src/Naqed')
 const { BOOL, INT, STRING } = Naqed.types
 
+const sleep = (ms, val) =>
+  new Promise(resolve => setTimeout(() => resolve(val), ms))
+
 it('can be created', () => {
   const n = new Naqed({ a: 10, b: () => 20, c: true })
   expect(n).toBeDefined()
@@ -42,7 +45,7 @@ it('supports circular resolvers', async () => {
   })
 })
 
-it('supports simple dynamic resolution to object', async () => {
+it('supports typless dynamic resolution to object', async () => {
   const n = new Naqed({
     a: {
       $ () {
@@ -59,7 +62,7 @@ it('supports simple dynamic resolution to object', async () => {
   })
 })
 
-it('supports simple dynamic resolver', async () => {
+it('supports typeless dynamic resolver', async () => {
   const n = new Naqed({
     a: {
       $ () {
@@ -435,5 +438,145 @@ describe('type checking', () => {
         a: { a: { a: { a: { test: 'Hello' } } } }
       }
     )
+  })
+})
+
+describe('mutations', () => {
+  it('rejects when mutations and queries are mixed', async () => {
+    const n = new Naqed({
+      users () {
+        fail('should not get here')
+      },
+      '~CreateUser' () {
+        fail('should not get here')
+      }
+    })
+
+    await expect(
+      n.request({
+        users: true,
+        '~CreateUser': {}
+      })
+    ).rejects.toThrow('cannot mix queries and mutations')
+  })
+
+  it('runs mutations in series', async () => {
+    const n = new Naqed({
+      async '~First' () {
+        return sleep(10, Date.now())
+      },
+      async '~Second' () {
+        return sleep(10, Date.now())
+      },
+      async '~Third' () {
+        return sleep(10, Date.now())
+      }
+    })
+
+    const result = await n.request({
+      '~First': {},
+      '~Second': {},
+      '~Third': {}
+    })
+    expect(typeof result.First).toEqual('number')
+    expect(typeof result.Second).toEqual('number')
+    expect(typeof result.Third).toEqual('number')
+
+    expect(result.First).toBeLessThan(result.Second)
+    expect(result.Second).toBeLessThan(result.Third)
+  })
+
+  it('complains when mutation requested does not exist', async () => {
+    const n = new Naqed({
+      async '~Test' () {
+        return true
+      }
+    })
+
+    expect(await n.request({ '~Missing': {} })).toEqual({
+      Missing: new TypeError('unknown mutation: Missing')
+    })
+  })
+
+  it('complains when mutation is not given an args object', async () => {
+    const n = new Naqed({
+      async '~Test' () {
+        return true
+      }
+    })
+
+    expect(await n.request({ '~Test': true })).toEqual({
+      Test: new TypeError('invalid mutation args: true')
+    })
+  })
+
+  it('supports typed mutations', async () => {
+    const n = new Naqed({
+      '~Test': {
+        async $BOOL (_, ctx) {
+          return ctx
+        }
+      }
+    })
+
+    expect(await n.request({ '~Test': {} }, true)).toEqual({
+      Test: true
+    })
+
+    expect(await n.request({ '~Test': {} }, 'FAIL')).toEqual({
+      Test: new TypeError('invalid BOOL: FAIL')
+    })
+  })
+
+  it('rejects when mutation spec does not have any Dynamic keys', async () => {
+    const n = new Naqed({
+      '~Test': {}
+    })
+
+    const result = await n.request({
+      '~Test': {}
+    })
+
+    expect(result.Test).toEqual(
+      new TypeError('no resolver found for mutation: Test')
+    )
+  })
+
+  it('rejects when mutation spec has args but no resolver function', async () => {
+    const n = new Naqed({
+      '~Test': {
+        $a: BOOL
+      }
+    })
+
+    const result = await n.request({
+      '~Test': {}
+    })
+
+    expect(result.Test).toEqual(
+      new TypeError('no resolver found for mutation: Test')
+    )
+  })
+
+  it('returns error when request does not contain query or mutation', async () => {
+    const n = new Naqed({
+      '~Test': {
+        $a: BOOL
+      }
+    })
+
+    expect(await n.request({})).toEqual(
+      new TypeError('request must either be a query or mutation')
+    )
+  })
+
+  it('complains when mutation config is not a function or dynamic object', async () => {
+    const n = new Naqed({
+      '~Test': 'WTH'
+    })
+
+    expect(await n.request({ '~Test': {} })).toEqual({
+      Test: new TypeError('invalid mutation specification: WTH')
+    })
   })
 })

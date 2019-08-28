@@ -24,4 +24,17 @@ reconstruct.async = async (obj, fn) =>
     (await Promise.all(Object.entries(obj).map(fn))).filter(x => x)
   )
 
+reconstruct.asyncSeries = async (obj, fn) => {
+  return objectFromEntries(
+    await Object.entries(obj).reduce(
+      (entries, entry) =>
+        entries.then(async entries => {
+          const mapped = await fn(entry)
+          return mapped ? [...entries, mapped] : entries
+        }),
+      Promise.resolve([])
+    )
+  )
+}
+
 module.exports = reconstruct

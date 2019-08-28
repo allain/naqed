@@ -1,10 +1,12 @@
 const recon = require('./lib/reconstruct')
+const pluckKeys = require('./lib/pluck-keys')
 
 const isFunction = x => typeof x === 'function'
 const isObject = x => x && !Array.isArray(x) && typeof x === 'object'
 const isUndefined = x => typeof x === 'undefined'
-
-const pluckKeys = require('./lib/pluck-keys')
+const hasMatchingKey = (x, regex) =>
+  Object.keys(x).some(key => key.match(regex))
+const hasDynamicFn = x => hasMatchingKey(x, /^\$([A-Z]|$)/)
 
 const extractArgs = pluckKeys(
   keyName => keyName.match(/^\$[^A-Z]/) && keyName.substr(1)
@@ -25,6 +27,10 @@ const extractDynamicFn = pluckKeys(
 const extractNonArgs = pluckKeys(keyName => !keyName.startsWith('$'))
 
 const isScalarType = obj => Object.values(Naqed.types).includes(obj)
+const hasQuery = request =>
+  Object.keys(request).some(topLevelKey => !topLevelKey.startsWith('~'))
+const hasMutation = request =>
+  Object.keys(request).some(topLevelKey => topLevelKey.startsWith('~'))
 
 class Naqed {
   constructor (spec) {
@@ -61,7 +67,17 @@ class Naqed {
   }
 
   async request (q, ctx = {}) {
-    return await this._resolveQuery(this.spec, q, ctx)
+    const isQuery = hasQuery(q)
+    const isMutation = hasMutation(q)
+    if (isQuery && isMutation) {
+      throw new TypeError('cannot mix queries and mutations')
+    } else if (isQuery) {
+      return await this._resolveQuery(this.spec, q, ctx)
+    } else if (isMutation) {
+      return await this._resolveMutation(this.spec, q, ctx)
+    } else {
+      return new TypeError('request must either be a query or mutation')
+    }
   }
 
   async _resolveQuery (spec, query, ctx) {
@@ -78,67 +94,144 @@ class Naqed {
         resolveVal = resolveVal.apply(spec, [extractArgs(queryVal), ctx])
         queryVal = extractNonArgs(queryVal)
       } else if (isObject(resolveVal)) {
-        const dynamic = extractDynamicFn(resolveVal)
-
-        if (Object.keys(dynamic).length) {
-          const typeSpec = Object.keys(dynamic)[0]
-          const [typeName] = typeSpec.endsWith('[]')
-            ? [typeSpec.replace(/\[\]$/, ''), true]
-            : [typeSpec, false]
-
-          const dynamicFn = dynamic[typeSpec]
-          const shape = typeName
-            ? this.typePrototypes[typeName]
-            : extractNonArgs(resolveVal)
-
-          let resolved = dynamicFn
-          if (isFunction(dynamicFn)) {
-            // Check query args against types
-            const args = extractArgs(queryVal)
-            const argsTypes = extractArgTypes(args, spec[queryProp])
-            for (const [argName, type] of Object.entries(argsTypes)) {
-              const checkedArg = this._check(args[argName], type)
-              if (checkedArg instanceof TypeError) {
-                return [queryProp, checkedArg]
-              }
-            }
-
-            resolved = await dynamicFn.apply(spec, [args, ctx])
-
-            // Anything non-meta on the queryVal needs to be plucked from the response still
-            queryVal = recon(queryVal, ([prop]) => prop[0] !== '$')
-          }
-
-          if (Array.isArray(resolved)) {
-            resolveVal = resolved.map(obj =>
-              isObject(obj) ? Object.assign(Object.create(shape), obj) : obj
-            )
-          } else if (isObject(resolved)) {
-            resolveVal = Object.assign(Object.create(shape), resolved)
-          } else {
-            resolveVal = resolved
-          }
-        }
-      }
-
-      if (resolveVal && resolveVal.then) {
-        resolveVal = await resolveVal
-      }
-
-      if (isObject(queryVal) && Object.keys(queryVal).length > 0) {
-        if (Array.isArray(resolveVal)) {
-          resolveVal = await Promise.all(
-            resolveVal.map(rv => this._resolveQuery(rv, queryVal, ctx))
+        if (hasDynamicFn(resolveVal)) {
+          const resolution = await this._performDynamicResolution(
+            resolveVal,
+            queryVal,
+            ctx
           )
-        } else {
-          resolveVal = await this._resolveQuery(resolveVal, queryVal, ctx)
+          if (resolution.resolveVal instanceof Error) {
+            return [queryProp, resolution.resolveVal]
+          }
+          resolveVal = resolution.resolveVal
+          queryVal = resolution.queryVal
         }
       }
 
-      return [queryProp, resolveVal]
+      return [queryProp, await this._prepareResult(resolveVal, queryVal, ctx)]
     })
 
     return this._check(resolved, this.spec)
+  }
+
+  async _resolveMutation (spec, query, ctx) {
+    const resolved = await recon.asyncSeries(
+      query,
+      async ([queryProp, queryVal]) => {
+        const mutationName = queryProp.substr(1)
+
+        // Unlike queries top level mutations must pass an object (its arguments)
+        if (!isObject(queryVal)) {
+          return [
+            mutationName,
+            new TypeError('invalid mutation args: ' + queryVal)
+          ]
+        }
+
+        let resolveVal = spec[queryProp]
+
+        if (isUndefined(resolveVal)) {
+          return [
+            mutationName,
+            new TypeError('unknown mutation: ' + mutationName)
+          ]
+        }
+
+        if (typeof resolveVal === 'function') {
+          resolveVal = resolveVal.apply(spec, [extractArgs(queryVal), ctx])
+          queryVal = extractNonArgs(queryVal)
+        } else if (isObject(resolveVal)) {
+          if (!hasDynamicFn(resolveVal)) {
+            return [
+              mutationName,
+              new TypeError('no resolver found for mutation: ' + mutationName)
+            ]
+          }
+
+          const resolution = await this._performDynamicResolution(
+            resolveVal,
+            queryVal,
+            ctx
+          )
+          resolveVal = resolution.resolveVal
+          queryVal = resolution.queryVal
+        } else {
+          return [
+            mutationName,
+            new TypeError('invalid mutation specification: ' + resolveVal)
+          ]
+        }
+
+        return [
+          mutationName,
+          await this._prepareResult(resolveVal, queryVal, ctx)
+        ]
+      }
+    )
+
+    return this._check(resolved, this.spec)
+  }
+
+  async _performDynamicResolution (resolveVal, queryVal, ctx) {
+    const dynamic = extractDynamicFn(resolveVal)
+
+    const typeSpec = Object.keys(dynamic)[0]
+    const [typeName] = typeSpec.endsWith('[]')
+      ? [typeSpec.replace(/\[\]$/, ''), true]
+      : [typeSpec, false]
+
+    const dynamicFn = dynamic[typeSpec]
+    const shape = typeName
+      ? this.typePrototypes[typeName]
+      : extractNonArgs(resolveVal)
+
+    let resolved = dynamicFn
+    if (isFunction(dynamicFn)) {
+      // Check query args against types
+      const args = extractArgs(queryVal)
+      const argsTypes = extractArgTypes(args, resolveVal)
+      for (const [argName, type] of Object.entries(argsTypes)) {
+        const checkedArg = this._check(args[argName], type)
+        if (checkedArg instanceof TypeError) {
+          return { resolveVal: checkedArg, queryVal }
+        }
+      }
+
+      resolved = await dynamicFn.apply(null, [args, ctx])
+
+      // Anything non-meta on the queryVal needs to be plucked from the response still
+      queryVal = recon(queryVal, ([prop]) => prop[0] !== '$')
+    }
+
+    if (Array.isArray(resolved)) {
+      resolveVal = resolved.map(obj =>
+        isObject(obj) ? Object.assign(Object.create(shape), obj) : obj
+      )
+    } else if (isObject(resolved)) {
+      resolveVal = Object.assign(Object.create(shape), resolved)
+    } else {
+      resolveVal = resolved
+    }
+
+    return { resolveVal, queryVal }
+  }
+
+  async _prepareResult (resolveVal, queryVal, ctx) {
+    if (resolveVal && resolveVal.then) {
+      resolveVal = await resolveVal
+    }
+
+    if (isObject(queryVal) && Object.keys(queryVal).length > 0) {
+      if (Array.isArray(resolveVal)) {
+        resolveVal = await Promise.all(
+          resolveVal.map(rv => this._resolveQuery(rv, queryVal, ctx))
+        )
+      } else {
+        resolveVal = await this._resolveQuery(resolveVal, queryVal, ctx)
+      }
+    }
+
+    return resolveVal
   }
 
   _check (value, spec) {
@@ -183,9 +276,11 @@ class Naqed {
     return this._check(value, type)
   }
 
+  // This when the
   _checkStructuredType (value, spec) {
     return recon(value, ([prop, val]) => {
       if (spec[prop]) return [prop, this._check(val, spec[prop])]
+      if (spec['~' + prop]) return [prop, this._check(val, spec['~' + prop])]
 
       // If the object does not say anything about this prop, then pass it through
       return [prop, val]
