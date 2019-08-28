@@ -3,6 +3,10 @@
   "version": "0.2.0",
   "description": "",
   "main": "src/Naqed.js",
+  "files": [
+    "src",
+    "README.md"
+  ],
   "scripts": {
     "test": "jest"
   },
