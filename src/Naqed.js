@@ -36,8 +36,9 @@ const hasMutation = request =>
 class Naqed {
   constructor (spec) {
     // Remove keys that start with $ since they are used to speficy custom types
-    this.spec = recon(spec, ([key, val]) => !key.startsWith('$'))
-    const customTypes = Object.assign(
+    this._spec = recon(spec, ([key, val]) => !key.startsWith('$'))
+
+    this._customTypes = Object.assign(
       recon(spec, ([key, val]) => {
         if (!key.startsWith('$')) return false
 
@@ -50,11 +51,9 @@ class Naqed {
       })
     )
 
-    this.customTypes = customTypes
+    this._types = Object.assign({}, this._customTypes, Naqed.types)
 
-    this.types = Object.assign({}, customTypes, Naqed.types)
-
-    this.typePrototypes = recon(customTypes, ([typeName, typeSpec]) => [
+    this._typePrototypes = recon(this._customTypes, ([typeName, typeSpec]) => [
       typeName,
       recon(typeSpec, ([prop, propSpec]) => {
         if (isFunction(propSpec)) return true
@@ -68,14 +67,14 @@ class Naqed {
       })
     ])
 
-    this._checkTypes(this.spec)
+    this._checkSpecTypes(this._spec)
   }
 
-  _checkTypes (spec, seen = new Set()) {
+  _checkSpecTypes (spec, seen = new Set()) {
     if (typeof spec === 'string') {
       this._parseTypeSpec(spec)
     } else if (Array.isArray(spec)) {
-      spec.forEach(s => seen.has(s) || this._checkTypes(s, seen.add(s)))
+      spec.forEach(s => seen.has(s) || this._checkSpecTypes(s, seen.add(s)))
     } else if (isObject(spec)) {
       if (spec.check) return
       Object.entries(spec).forEach(([key, val]) => {
@@ -84,7 +83,7 @@ class Naqed {
             this._parseTypeSpec(key)
           }
         } else if (!seen.has(val)) {
-          this._checkTypes(val, seen.add(val))
+          this._checkSpecTypes(val, seen.add(val))
         }
       })
     }
@@ -113,9 +112,9 @@ class Naqed {
     if (isQuery && isMutation) {
       throw new TypeError('cannot mix queries and mutations')
     } else if (isQuery) {
-      return await this._resolveQuery(this.spec, q, ctx)
+      return await this._resolveQuery(this._spec, q, ctx)
     } else if (isMutation) {
-      return await this._resolveMutation(this.spec, q, ctx)
+      return await this._resolveMutation(this._spec, q, ctx)
     } else {
       return new TypeError('request must either be a query or mutation')
     }
@@ -171,7 +170,7 @@ class Naqed {
       return [queryProp, await this._prepareResult(resolveVal, queryVal, ctx)]
     })
 
-    return this._check(resolved, this.spec)
+    return this._check(resolved, this._spec)
   }
 
   async _resolveMutation (spec, query, ctx) {
@@ -226,7 +225,7 @@ class Naqed {
       }
     )
 
-    return this._check(resolved, this.spec)
+    return this._check(resolved, this._spec)
   }
 
   async _performDynamicResolution (resolveVal, queryVal, ctx) {
@@ -236,7 +235,7 @@ class Naqed {
     const { type, typeName, isArray, required } = this._parseTypeSpec(typeSpec)
     const dynamicFn = dynamic[typeSpec]
     const shape = typeName
-      ? this.typePrototypes[typeName]
+      ? this._typePrototypes[typeName]
       : extractNonArgs(resolveVal)
 
     let resolved = dynamicFn
@@ -303,11 +302,12 @@ class Naqed {
 
   _parseTypeSpec (typeSpec) {
     if (typeSpec === '$') return {}
+
     const match = typeSpec.match(/^\$([A-Z]+)(\[\])?([!])?$/i)
     if (!match) throw new TypeError('invalid type spec: ' + typeSpec)
 
     const [, typeName, isArray, required] = match
-    const type = this.types[typeName]
+    const type = this._types[typeName]
     if (!type) throw new TypeError('unknown type: ' + typeName)
 
     return { type, typeName, isArray, required }

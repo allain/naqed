@@ -141,25 +141,6 @@ it('supports passing in context while querying', async () => {
 })
 
 describe('type checking', () => {
-  it('exposes typePrototypes', () => {
-    const TestType = {
-      name: STRING,
-      subtests: {
-        $Test () {
-          return [{ name: 'Sub1' }, { name: 'Sub1' }]
-        }
-      }
-    }
-    const n = new Naqed({
-      $Test: TestType
-    })
-
-    const typeProto = n.typePrototypes.Test
-    expect(typeProto).toBeDefined()
-    expect(Object.keys(typeProto)).toEqual(['subtests'])
-    expect(typeProto.subtests).toEqual(TestType.subtests)
-  })
-
   it('enforces built in scalars', async () => {
     const n = new Naqed({
       test: {
@@ -354,18 +335,40 @@ describe('type checking', () => {
     })
   })
 
-  it('checks agains composite object properly', async () => {
+  it('checks agains composite object param type properly', async () => {
     const n = new Naqed({
       $Person: {
         name: STRING
+      },
+      test: {
+        $ ({ p }) {
+          return p
+        },
+        $p: '$Person'
       }
     })
 
-    expect(n._check({ name: 'Allain' }, n.types.Person)).toEqual({
-      name: 'Allain'
+    expect(await n.request({ test: { $p: { name: 'Allain' } } })).toEqual({
+      test: { name: 'Allain' }
     })
-    expect(n._check({ name: false }, n.types.Person)).toEqual({
-      name: new TypeError('invalid STRING: false')
+  })
+
+  it('checks agains composite object return type properly', async () => {
+    const n = new Naqed({
+      $Person: {
+        name: STRING
+      },
+      test: {
+        $Person ({}, ctx) {
+          return ctx
+        }
+      }
+    })
+
+    expect(
+      await n.request({ test: true }, { context: { name: 'Allain' } })
+    ).toEqual({
+      test: { name: 'Allain' }
     })
   })
 
