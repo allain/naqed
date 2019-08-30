@@ -43,7 +43,7 @@ class Naqed {
         if (!key.startsWith('$')) return false
 
         if (isScalarType(val)) {
-          // this is an alias
+          // this is an alias for a scalar, so clone it
           val = Object.assign({}, val, { name: key.substr(1) })
         }
 

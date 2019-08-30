@@ -10,6 +10,17 @@ it('can be created', () => {
   expect(n.request).toBeInstanceOf(Function)
 })
 
+it('has expected API', () => {
+  const n = new Naqed({})
+  const fieldNames = Object.getOwnPropertyNames(Object.getPrototypeOf(n))
+    .filter(f => !f.startsWith('_'))
+    .sort()
+  expect(fieldNames).toEqual(['constructor', 'request'])
+
+  expect(n.request).toBeInstanceOf(Function)
+  expect(n.request({ test: 1 }).catch(() => true)).toBeInstanceOf(Promise)
+})
+
 it('throws when given an invalid value for a query', async () => {
   const n = new Naqed({ a: 10, b: () => 20, c: true })
   await expect(n.request({ a: false })).rejects.toThrow()
