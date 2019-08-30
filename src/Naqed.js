@@ -216,10 +216,7 @@ class Naqed {
           resolveVal = resolution.resolveVal
           queryVal = resolution.queryVal
         } else {
-          return [
-            mutationName,
-            new TypeError('invalid mutation specification: ' + resolveVal)
-          ]
+          throw new TypeError('invalid mutation specification: ' + resolveVal)
         }
 
         return [
