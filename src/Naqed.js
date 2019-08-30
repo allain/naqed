@@ -68,7 +68,24 @@ class Naqed {
     ])
   }
 
-  async request (q, ctx = {}) {
+  async request (q, options = {}) {
+    const ctx = typeof options.context === 'undefined' ? {} : options.context
+    const vars = options.vars || {}
+
+    if (q._vars) {
+      const check = this._check(vars, q._vars)
+      const errors = recon(
+        check,
+        ([prop, result]) => result instanceof TypeError
+      )
+
+      if (Object.keys(errors).length) {
+        return { _vars: errors }
+      }
+
+      q = this._bindVars(q, vars)
+    }
+
     const isQuery = hasQuery(q)
     const isMutation = hasMutation(q)
     if (isQuery && isMutation) {
@@ -80,6 +97,25 @@ class Naqed {
     } else {
       return new TypeError('request must either be a query or mutation')
     }
+  }
+
+  _bindVars (q, vars) {
+    return recon(q, ([prop, val]) => {
+      if (prop === '_vars') return false
+
+      if (typeof val === 'string' && val[0] === '_') {
+        const varName = val.substr(1)
+        if (typeof vars[varName] === 'undefined') {
+          throw new Error('reference to unknown var: ' + varName)
+        }
+        return [prop, vars[varName]]
+      }
+      if (isObject(val) && !isScalarType(val)) {
+        return [prop, this._bindVars(val, vars)]
+      }
+
+      return true
+    })
   }
 
   async _resolveQuery (spec, query, ctx) {
@@ -196,6 +232,17 @@ class Naqed {
         const checkedArg = this._check(args[argName], type)
         if (checkedArg instanceof TypeError) {
           return { resolveVal: checkedArg, queryVal }
+        } else if (Array.isArray(checkedArg)) {
+          const error = checkedArg.find(arg => arg instanceof TypeError)
+          if (error) {
+            return {
+              resolveVal: new TypeError(
+                `invalid ${type} arg ${argName}: [${args[argName]}]`
+              ),
+
+              queryVal
+            }
+          }
         }
       }
 
@@ -238,13 +285,22 @@ class Naqed {
 
   _check (value, spec) {
     if (value instanceof TypeError) return value
-    if (Array.isArray(spec)) {
-      if (Array.isArray(value)) {
-        return value.map(val => this._check(val, spec[0]))
-      }
 
-      return new TypeError('invalid Array: ' + value)
+    if (typeof spec === 'string') {
+      const match = spec.match(/^([A-Z]+)(\[\])?([!])?$/i)
+      if (!match) throw new TypeError('invalid type spec: ' + spec)
+      const [, typeName, isArray, required] = match
+      const type = this.types[typeName]
+      if (!type) throw new TypeError('unknown type: ' + spec)
+      spec = isArray ? [type] : type
     }
+
+    if (Array.isArray(spec)) {
+      return Array.isArray(value)
+        ? value.map(val => this._check(val, spec[0]))
+        : new TypeError('invalid Array: ' + value)
+    }
+
     if (!isObject(spec)) return value
 
     const checkedScalar = this._checkScalar(value, spec)

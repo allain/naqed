@@ -32,7 +32,11 @@ it('works when resolving to an array of objects', async () => {
 
 it('supports circular resolvers', async () => {
   const A = {}
-  const B = { test: 'Hello' }
+  const B = {
+    test () {
+      return 'Hello'
+    }
+  }
   A.b = B
   B.a = A
 
@@ -131,7 +135,7 @@ it('supports passing in context while querying', async () => {
     }
   })
 
-  expect(await n.request({ test: true }, { a: 100 })).toEqual({
+  expect(await n.request({ test: true }, { context: { a: 100 } })).toEqual({
     test: { a: 100 }
   })
 })
@@ -243,6 +247,7 @@ describe('type checking', () => {
         }
       }
     }
+
     return new Naqed(spec)
   }
 
@@ -275,7 +280,7 @@ describe('type checking', () => {
 
       it(`succeeds for ${success.join(', ')} as ${typeName}`, async () => {
         for (const s of success) {
-          expect(await n.request({ test: true }, s)).toEqual({
+          expect(await n.request({ test: true }, { context: s })).toEqual({
             test: s
           })
         }
@@ -283,9 +288,11 @@ describe('type checking', () => {
 
       it(`fails for ${fail.join(', ')} as ${typeName}`, async () => {
         for (const f of fail) {
-          expect(await n.request({ test: true }, f)).toMatchObject({
-            test: { message: `invalid ${typeName}: ${f}` }
-          })
+          expect(await n.request({ test: true }, { context: f })).toMatchObject(
+            {
+              test: { message: `invalid ${typeName}: ${f}` }
+            }
+          )
         }
       })
     })
@@ -299,6 +306,44 @@ describe('type checking', () => {
       'INT',
       'STRING'
     ])
+  })
+
+  it('supports giving types as TYPENAME strings', async () => {
+    const n = new Naqed({
+      a: {
+        $ ({ x }) {
+          return x
+        },
+        $x: 'INT'
+      }
+    })
+
+    expect(await n.request({ a: { $x: 10 } })).toEqual({
+      a: 10
+    })
+
+    expect(await n.request({ a: { $x: 'FAIL' } })).toEqual({
+      a: new TypeError('invalid INT: FAIL')
+    })
+  })
+  
+  it('supports giving types as TYPENAME[] strings', async () => {
+    const n = new Naqed({
+      a: {
+        $ ({ x }) {
+          return x
+        },
+        $x: 'INT[]'
+      }
+    })
+
+    expect(await n.request({ a: { $x: [10] } })).toEqual({
+      a: [10]
+    })
+
+    expect(await n.request({ a: { $x: ['FAIL'] } })).toEqual({
+      a: new TypeError('invalid INT[] arg x: [FAIL]')
+    })
   })
 
   it('checks scalars properly', async () => {
@@ -334,11 +379,11 @@ describe('type checking', () => {
       }
     })
 
-    expect(await n.request({ test: true }, true)).toEqual({
+    expect(await n.request({ test: true }, { context: true })).toEqual({
       test: true
     })
 
-    expect(await n.request({ test: true }, 'FAIL')).toEqual({
+    expect(await n.request({ test: true }, { context: 'FAIL' })).toEqual({
       test: new TypeError('invalid BOOL: FAIL')
     })
   })
@@ -351,11 +396,13 @@ describe('type checking', () => {
         }
       }
     })
-    expect(await n.request({ test: true }, [true, false])).toEqual({
-      test: [true, false]
-    })
+    expect(await n.request({ test: true }, { context: [true, false] })).toEqual(
+      {
+        test: [true, false]
+      }
+    )
 
-    expect(await n.request({ test: true }, ['FAIL'])).toEqual({
+    expect(await n.request({ test: true }, { context: ['FAIL'] })).toEqual({
       test: [new TypeError('invalid BOOL: FAIL')]
     })
   })
@@ -371,16 +418,20 @@ describe('type checking', () => {
         }
       }
     })
-    expect(await n.request({ test: true }, { tags: ['a', 'b'] })).toEqual({
+    expect(
+      await n.request({ test: true }, { context: { tags: ['a', 'b'] } })
+    ).toEqual({
       test: { tags: ['a', 'b'] }
     })
 
-    expect(await n.request({ test: true }, { tags: 'FAIL' })).toEqual({
+    expect(
+      await n.request({ test: true }, { context: { tags: 'FAIL' } })
+    ).toEqual({
       test: { tags: new TypeError('invalid Array: FAIL') }
     })
   })
 
-  it.skip('allows typechecking using "Type[]" for field', async () => {
+  it('allows typechecking using "Type[]" for field', async () => {
     const n = new Naqed({
       $A: {
         tags: 'STRING[]'
@@ -391,11 +442,15 @@ describe('type checking', () => {
         }
       }
     })
-    expect(await n.request({ test: true }, { tags: ['a', 'b'] })).toEqual({
+    expect(
+      await n.request({ test: true }, { context: { tags: ['a', 'b'] } })
+    ).toEqual({
       test: { tags: ['a', 'b'] }
     })
 
-    expect(await n.request({ test: true }, { tags: 'FAIL' })).toEqual({
+    expect(
+      await n.request({ test: true }, { context: { tags: 'FAIL' } })
+    ).toEqual({
       test: { tags: new TypeError('invalid Array: FAIL') }
     })
   })
@@ -416,8 +471,8 @@ describe('type checking', () => {
 
   it('supports custom scalar types', async () => {
     const n = buildTypeChecker({ name: 'TEST', check: n => n === 5 })
-    expect(await n.request({ test: true }, 5)).toEqual({ test: 5 })
-    expect(await n.request({ test: true }, 10)).toMatchObject({
+    expect(await n.request({ test: true }, { context: 5 })).toEqual({ test: 5 })
+    expect(await n.request({ test: true }, { context: 10 })).toMatchObject({
       test: {
         message: /^invalid TEST: 10/
       }
@@ -433,12 +488,18 @@ describe('type checking', () => {
       'CUSTOM'
     )
     expect(
-      await n.request({ test: { a: true, b: true } }, { a: 1, b: true })
+      await n.request(
+        { test: { a: true, b: true } },
+        { context: { a: 1, b: true } }
+      )
     ).toEqual({
       test: { a: 1, b: true }
     })
     expect(
-      await n.request({ test: { a: true, b: true } }, { a: 20, b: 'BAD' })
+      await n.request(
+        { test: { a: true, b: true } },
+        { context: { a: 20, b: 'BAD' } }
+      )
     ).toMatchObject({
       test: {
         b: {
@@ -559,11 +620,11 @@ describe('mutations', () => {
       }
     })
 
-    expect(await n.request({ '~Test': {} }, true)).toEqual({
+    expect(await n.request({ '~Test': {} }, { context: true })).toEqual({
       Test: true
     })
 
-    expect(await n.request({ '~Test': {} }, 'FAIL')).toEqual({
+    expect(await n.request({ '~Test': {} }, { context: 'FAIL' })).toEqual({
       Test: new TypeError('invalid BOOL: FAIL')
     })
   })
@@ -618,5 +679,57 @@ describe('mutations', () => {
     expect(await n.request({ '~Test': {} })).toEqual({
       Test: new TypeError('invalid mutation specification: WTH')
     })
+  })
+
+  it('complains on invalid variables', async () => {
+    const n = new Naqed({
+      echo (x) {
+        return x
+      }
+    })
+
+    expect(
+      await n.request(
+        {
+          _vars: {
+            id: STRING
+          },
+          echo: {
+            $x: '_id'
+          }
+        },
+        {
+          vars: {
+            id: 10
+          }
+        }
+      )
+    ).toEqual({ _vars: { id: new TypeError('invalid STRING: 10') } })
+  })
+
+  it('supports using variables', async () => {
+    const n = new Naqed({
+      echo ({ x }) {
+        return x
+      }
+    })
+
+    expect(
+      await n.request(
+        {
+          _vars: {
+            id: STRING
+          },
+          echo: {
+            $x: '_id'
+          }
+        },
+        {
+          vars: {
+            id: 'HELLO'
+          }
+        }
+      )
+    ).toEqual({ echo: 'HELLO' })
   })
 })
