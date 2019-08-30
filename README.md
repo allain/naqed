@@ -8,6 +8,7 @@ Naqed is an **experiment** to strip down all of the abstraction around GraphQL.
 - It has optional types
 - It supports defining custom types (and scalars) in a simple way.
 - It supports mutations
+- It supports Variaables
 
 ## Installation
 
