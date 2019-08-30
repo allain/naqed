@@ -313,7 +313,7 @@ describe('type checking', () => {
         $ ({ x }) {
           return x
         },
-        $x: 'INT'
+        $x: '$INT'
       }
     })
 
@@ -332,7 +332,7 @@ describe('type checking', () => {
         $ ({ x }) {
           return x
         },
-        $x: 'INT[]'
+        $x: '$INT[]'
       }
     })
 
@@ -433,7 +433,7 @@ describe('type checking', () => {
   it('allows typechecking using "Type[]" for field', async () => {
     const n = new Naqed({
       $A: {
-        tags: 'STRING[]'
+        tags: '$STRING[]'
       },
       test: {
         $A ({}, ctx) {
@@ -688,7 +688,7 @@ describe('mutations', () => {
     expect(
       () =>
         new Naqed({
-          '~Test': 'WTH'
+          '~Test': '$WTH'
         })
     ).toThrow(new TypeError('unknown type: WTH'))
   })

@@ -23,7 +23,7 @@ const extractArgTypes = (args, spec) =>
   }, {})
 
 const extractDynamicFn = pluckKeys(
-  keyName => keyName.match(/^\$([A-Z]|$)/i) && keyName.substr(1)
+  keyName => keyName.match(/^\$([A-Z]|$)/i) && keyName
 )
 const extractNonArgs = pluckKeys(keyName => !keyName.startsWith('$'))
 
@@ -77,6 +77,7 @@ class Naqed {
     } else if (Array.isArray(spec)) {
       spec.forEach(s => seen.has(s) || this._checkTypes(s, seen.add(s)))
     } else if (isObject(spec)) {
+      if (spec.check) return
       Object.entries(spec).forEach(([key, val]) => {
         if (typeof val === 'function') {
           if (key !== '$' && key.startsWith('$')) {
@@ -235,10 +236,7 @@ class Naqed {
     const dynamic = extractDynamicFn(resolveVal)
 
     const typeSpec = Object.keys(dynamic)[0]
-    const [typeName] = typeSpec.endsWith('[]')
-      ? [typeSpec.replace(/\[\]$/, ''), true]
-      : [typeSpec, false]
-
+    const { type, typeName, isArray, required } = this._parseTypeSpec(typeSpec)
     const dynamicFn = dynamic[typeSpec]
     const shape = typeName
       ? this.typePrototypes[typeName]
@@ -253,12 +251,14 @@ class Naqed {
         const checkedArg = this._check(args[argName], type)
         if (checkedArg instanceof TypeError) {
           return { resolveVal: checkedArg, queryVal }
-        } else if (Array.isArray(checkedArg)) {
+        }
+
+        if (Array.isArray(checkedArg)) {
           const error = checkedArg.find(arg => arg instanceof TypeError)
           if (error) {
             return {
               resolveVal: new TypeError(
-                `invalid ${type} arg ${argName}: [${args[argName]}]`
+                `invalid ${type.substr(1)} arg ${argName}: [${args[argName]}]`
               ),
 
               queryVal
@@ -305,8 +305,8 @@ class Naqed {
   }
 
   _parseTypeSpec (typeSpec) {
-    if (typeSpec === '') return {}
-    const match = typeSpec.match(/^\$?([A-Z]+)(\[\])?([!])?$/i)
+    if (typeSpec === '$') return {}
+    const match = typeSpec.match(/^\$([A-Z]+)(\[\])?([!])?$/i)
     if (!match) throw new TypeError('invalid type spec: ' + typeSpec)
 
     const [, typeName, isArray, required] = match
