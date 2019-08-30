@@ -49,7 +49,7 @@ it('supports circular resolvers', async () => {
   })
 })
 
-it('supports typless dynamic resolution to object', async () => {
+it('supports typeless dynamic resolution to object', async () => {
   const n = new Naqed({
     a: {
       $ () {
@@ -189,18 +189,17 @@ describe('type checking', () => {
     })
   })
 
-  it('returns type error when requested type is not known', async () => {
-    const n = new Naqed({
-      test: {
-        $MISSING () {
-          return 'FAIL'
-        }
-      }
-    })
-    const result = await n.request({ test: true })
-    expect(result).toEqual({
-      test: new TypeError('unknown type: MISSING')
-    })
+  it('throws type error when requested type is not known', async () => {
+    expect(
+      () =>
+        new Naqed({
+          test: {
+            $MISSING () {
+              return 'FAIL'
+            }
+          }
+        })
+    ).toThrow(new TypeError('unknown type: MISSING'))
   })
 
   it('supports type checking resolver arguments', async () => {
@@ -254,7 +253,7 @@ describe('type checking', () => {
   const checks = {
     ID: {
       success: ['123'],
-      fail: [true, 10, '', null, {}]
+      fail: [true, 10, '', {}]
     },
     STRING: {
       success: ['Hello', '', 'true'],
@@ -262,11 +261,11 @@ describe('type checking', () => {
     },
     BOOL: {
       success: [true, false],
-      fail: ['true', null, {}]
+      fail: ['true', {}]
     },
     INT: {
       success: [-10, 10, 0],
-      fail: [Number.POSITIVE_INFINITY, 1.5, null, {}, true, Number.NaN]
+      fail: [Number.POSITIVE_INFINITY, 1.5, {}, true, Number.NaN]
     },
     FLOAT: {
       success: [Number.POSITIVE_INFINITY, -10, 10, 0, 5.5, 0.5],
@@ -326,7 +325,7 @@ describe('type checking', () => {
       a: new TypeError('invalid INT: FAIL')
     })
   })
-  
+
   it('supports giving types as TYPENAME[] strings', async () => {
     const n = new Naqed({
       a: {
@@ -455,6 +454,20 @@ describe('type checking', () => {
     })
   })
 
+  it('supports enforcing non-null types', async () => {
+    const n = new Naqed({
+      test: {
+        '$BOOL!' () {
+          return null
+        }
+      }
+    })
+
+    expect(await n.request({ test: true })).toEqual({
+      test: new TypeError('missing BOOL')
+    })
+  })
+
   it('return TypeError when Array is type but non-array given in resolver', async () => {
     const n = new Naqed({
       test: {
@@ -512,7 +525,7 @@ describe('type checking', () => {
   it('retains out props when type says nothing about them', async () => {
     const n = new Naqed({
       a: {
-        $STRING: 'YO'
+        $STRING: () => 'YO'
       }
     })
     expect(await n.request({ a: true, b: true })).toEqual({ a: 'YO', b: null })
@@ -672,13 +685,12 @@ describe('mutations', () => {
   })
 
   it('complains when mutation config is not a function or dynamic object', async () => {
-    const n = new Naqed({
-      '~Test': 'WTH'
-    })
-
-    expect(await n.request({ '~Test': {} })).toEqual({
-      Test: new TypeError('invalid mutation specification: WTH')
-    })
+    expect(
+      () =>
+        new Naqed({
+          '~Test': 'WTH'
+        })
+    ).toThrow(new TypeError('unknown type: WTH'))
   })
 
   it('complains on invalid variables', async () => {

@@ -1,6 +1,7 @@
 const recon = require('./lib/reconstruct')
 const pluckKeys = require('./lib/pluck-keys')
 
+const isEmpty = x => x === null || typeof x === 'undefined'
 const isFunction = x => typeof x === 'function'
 const isObject = x => x && !Array.isArray(x) && typeof x === 'object'
 const isUndefined = x => typeof x === 'undefined'
@@ -66,6 +67,26 @@ class Naqed {
         return [prop, propSpec]
       })
     ])
+
+    this._checkTypes(this.spec)
+  }
+
+  _checkTypes (spec, seen = new Set()) {
+    if (typeof spec === 'string') {
+      this._parseTypeSpec(spec)
+    } else if (Array.isArray(spec)) {
+      spec.forEach(s => seen.has(s) || this._checkTypes(s, seen.add(s)))
+    } else if (isObject(spec)) {
+      Object.entries(spec).forEach(([key, val]) => {
+        if (typeof val === 'function') {
+          if (key !== '$' && key.startsWith('$')) {
+            this._parseTypeSpec(key)
+          }
+        } else if (!seen.has(val)) {
+          this._checkTypes(val, seen.add(val))
+        }
+      })
+    }
   }
 
   async request (q, options = {}) {
@@ -283,15 +304,25 @@ class Naqed {
     return resolveVal
   }
 
+  _parseTypeSpec (typeSpec) {
+    if (typeSpec === '') return {}
+    const match = typeSpec.match(/^\$?([A-Z]+)(\[\])?([!])?$/i)
+    if (!match) throw new TypeError('invalid type spec: ' + typeSpec)
+
+    const [, typeName, isArray, required] = match
+    const type = this.types[typeName]
+    if (!type) throw new TypeError('unknown type: ' + typeName)
+
+    return { type, typeName, isArray, required }
+  }
+
   _check (value, spec) {
     if (value instanceof TypeError) return value
 
     if (typeof spec === 'string') {
-      const match = spec.match(/^([A-Z]+)(\[\])?([!])?$/i)
-      if (!match) throw new TypeError('invalid type spec: ' + spec)
-      const [, typeName, isArray, required] = match
-      const type = this.types[typeName]
-      if (!type) throw new TypeError('unknown type: ' + spec)
+      const { type, isArray, required } = this._parseTypeSpec(spec)
+      if (!required && isEmpty(value)) return value
+
       spec = isArray ? [type] : type
     }
 
@@ -324,13 +355,16 @@ class Naqed {
     const dynamic = extractDynamicFn(spec)
     if (!Object.keys(dynamic).length) return null
 
-    const typeSpec = Object.keys(dynamic)[0]
-    const [typeName, isArray] = typeSpec.endsWith('[]')
-      ? [typeSpec.replace(/\[\]$/, ''), true]
-      : [typeSpec, false]
+    const { type, typeName, isArray, required } = this._parseTypeSpec(
+      Object.keys(dynamic)[0]
+    )
+    if (isEmpty(value)) {
+      if (required) return new TypeError(`missing ${typeName}`)
 
-    const type = this.types[typeName]
-    if (typeName && !type) return new TypeError(`unknown type: ${typeName}`)
+      return value
+    }
+
+    if (typeName && !type) throw new TypeError(`unknown type: ${typeName}`)
 
     if (isArray) {
       return Array.isArray(value)
