@@ -1,4 +1,8 @@
 module.exports = {
+  ANY: {
+    name: 'ANY',
+    check: a => true
+  },
   BOOL: {
     name: 'BOOL',
     check: b => typeof b === 'boolean'

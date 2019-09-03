@@ -291,6 +291,7 @@ describe('type checking', () => {
 
   it('exposes types', () => {
     expect(Object.keys(Naqed.types)).toEqual([
+      'ANY',
       'BOOL',
       'FLOAT',
       'ID',

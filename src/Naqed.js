@@ -14,42 +14,33 @@ const extractArgs = pluckKeys(
 )
 
 const extractArgTypes = (args, spec) =>
-  Object.keys(args).reduce((argTypes, argName) => {
+  recon(args, ([argName]) => {
     const argType = spec[`$${argName}`]
-    if (argType) {
-      argTypes[argName] = argType
-    }
-    return argTypes
-  }, {})
+    return argType && [argName, argType]
+  })
 
-const extractDynamicFn = pluckKeys(
-  keyName => keyName.match(/^\$([A-Z]|$)/i) && keyName
-)
+const extractDynamicFn = pluckKeys(key => key.match(/^\$([A-Z]|$)/i) && key)
 const extractNonArgs = pluckKeys(keyName => !keyName.startsWith('$'))
 
 const isScalarType = obj => Object.values(Naqed.types).includes(obj)
-const hasQuery = request =>
-  Object.keys(request).some(topLevelKey => !topLevelKey.startsWith('~'))
-const hasMutation = request =>
-  Object.keys(request).some(topLevelKey => topLevelKey.startsWith('~'))
+const hasQuery = request => hasMatchingKey(request, /^[^~]/)
+const hasMutation = request => hasMatchingKey(request, /^[~]/)
 
 class Naqed {
   constructor (spec) {
     // Remove keys that start with $ since they are used to speficy custom types
     this._spec = recon(spec, ([key, val]) => !key.startsWith('$'))
 
-    this._customTypes = Object.assign(
-      recon(spec, ([key, val]) => {
-        if (!key.startsWith('$')) return false
+    this._customTypes = recon(spec, ([key, val]) => {
+      if (!key.startsWith('$')) return false
 
-        if (isScalarType(val)) {
-          // this is an alias for a scalar, so clone it
-          val = Object.assign({}, val, { name: key.substr(1) })
-        }
+      if (isScalarType(val)) {
+        // this is an alias for a scalar, so clone it
+        val = Object.assign({}, val, { name: key.substr(1) })
+      }
 
-        return [key.substr(1), val]
-      })
-    )
+      return [key.substr(1), val]
+    })
 
     this._types = Object.assign({}, this._customTypes, Naqed.types)
 
@@ -72,7 +63,7 @@ class Naqed {
 
   _checkSpecTypes (spec, seen = new Set()) {
     if (typeof spec === 'string') {
-      this._parseTypeSpec(spec)
+      this._processTypeSpec(spec)
     } else if (Array.isArray(spec)) {
       spec.forEach(s => seen.has(s) || this._checkSpecTypes(s, seen.add(s)))
     } else if (isObject(spec)) {
@@ -80,7 +71,7 @@ class Naqed {
       Object.entries(spec).forEach(([key, val]) => {
         if (typeof val === 'function') {
           if (key !== '$' && key.startsWith('$')) {
-            this._parseTypeSpec(key)
+            this._processTypeSpec(key)
           }
         } else if (!seen.has(val)) {
           this._checkSpecTypes(val, seen.add(val))
@@ -232,11 +223,12 @@ class Naqed {
     const dynamic = extractDynamicFn(resolveVal)
 
     const typeSpec = Object.keys(dynamic)[0]
-    const { type, typeName, isArray, required } = this._parseTypeSpec(typeSpec)
+    const { typeName } = this._processTypeSpec(typeSpec)
     const dynamicFn = dynamic[typeSpec]
-    const shape = typeName
-      ? this._typePrototypes[typeName]
-      : extractNonArgs(resolveVal)
+    const shape =
+      typeName === 'ANY'
+        ? extractNonArgs(resolveVal)
+        : this._typePrototypes[typeName]
 
     let resolved = dynamicFn
     if (isFunction(dynamicFn)) {
@@ -300,24 +292,36 @@ class Naqed {
     return resolveVal
   }
 
-  _parseTypeSpec (typeSpec) {
-    if (typeSpec === '$') return {}
-
-    const match = typeSpec.match(/^\$([A-Z]+)(\[\])?([!])?$/i)
-    if (!match) throw new TypeError('invalid type spec: ' + typeSpec)
-
-    const [, typeName, isArray, required] = match
+  _processTypeSpec (typeSpec) {
+    const { typeName, isArray, required } = this._parseTypeSpec(typeSpec)
     const type = this._types[typeName]
     if (!type) throw new TypeError('unknown type: ' + typeName)
 
     return { type, typeName, isArray, required }
   }
 
+  _parseTypeSpec (typeSpec) {
+    if (typeSpec === '$') {
+      return {
+        typeName: 'ANY',
+        required: false,
+        isArray: false
+      }
+    }
+
+    const match = typeSpec.match(/^\$([A-Z]+)(\[\])?([!])?$/i)
+    if (!match) throw new TypeError('invalid type spec: ' + typeSpec)
+
+    const [, typeName, isArray, required] = match
+
+    return { typeName, isArray, required }
+  }
+
   _check (value, spec) {
     if (value instanceof TypeError) return value
 
     if (typeof spec === 'string') {
-      const { type, isArray, required } = this._parseTypeSpec(spec)
+      const { type, isArray, required } = this._processTypeSpec(spec)
       if (!required && isEmpty(value)) return value
 
       spec = isArray ? [type] : type
@@ -352,7 +356,7 @@ class Naqed {
     const dynamic = extractDynamicFn(spec)
     if (!Object.keys(dynamic).length) return null
 
-    const { type, typeName, isArray, required } = this._parseTypeSpec(
+    const { type, typeName, isArray, required } = this._processTypeSpec(
       Object.keys(dynamic)[0]
     )
     if (isEmpty(value)) {
