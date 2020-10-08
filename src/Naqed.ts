@@ -1,8 +1,8 @@
 import { asyncSeries, reconstruct, reconstructAsync } from './lib/reconstruct'
 import pluckKeys from './lib/pluck-keys'
-import * as scalars from './scalars'
-import { TypeChecker } from './TypeChecker'
+import { TypeEnforcer } from './TypeEnforcer'
 import { parseTypeSpec } from './parse-typespec'
+import { Linter } from './Linter'
 
 const isFunction = (x: any) => typeof x === 'function'
 const isObject = (x: any) => x && !Array.isArray(x) && typeof x === 'object'
@@ -35,19 +35,82 @@ const isScalarType = (obj: any) => Object.values(Naqed.scalars).includes(obj)
 const hasQuery = (request: Request) => hasMatchingKey(request, /^[^~]/)
 const hasMutation = (request: Request) => hasMatchingKey(request, /^[~]/)
 
+interface Scalar {
+  name: string
+  check(val: any): boolean
+}
 type Spec = Record<string, any>
-type Request = Record<string, any>
-type Vars = Record<string, any>
+
+type RequestIter<T> = Record<
+  string,
+  number | string | boolean | Scalar | number[] | string[] | T
+>
+interface Request extends RequestIter<Request> {}
+
+type JSONObjectIter<T> = Record<
+  string,
+  | undefined
+  | null
+  | number
+  | string
+  | boolean
+  | number[]
+  | string[]
+  | boolean[]
+  | T
+  | T[]
+>
+interface JSONObject extends JSONObjectIter<JSONObject> {}
+
+type JSONValue =
+  | null
+  | number
+  | string
+  | boolean
+  | number[]
+  | string[]
+  | boolean[]
+  | JSONObject
+  | JSONObject[]
+
+type Vars = Record<string, JSONValue>
 
 type RequestOptions = {
   context?: any
   vars?: Vars
 }
 
+export const scalars: Record<string, Scalar> = {
+  ANY: {
+    name: 'ANY',
+    check: (_a: any) => true
+  },
+  BOOL: {
+    name: 'BOOL',
+    check: (b: any) => typeof b === 'boolean'
+  },
+  FLOAT: {
+    name: 'FLOAT',
+    check: (n: any) => `${n}` === `${parseFloat(n)}` && !isNaN(n)
+  },
+  ID: {
+    name: 'ID',
+    check: (n: any) => typeof n === 'string' && !!n.trim()
+  },
+  INT: {
+    name: 'INT',
+    check: (n: any) => `${n}` === `${parseInt(n, 10)}` && !isNaN(n)
+  },
+  STRING: {
+    name: 'STRING',
+    check: (str: any) => typeof str === 'string'
+  }
+}
+
 export class Naqed {
   private _spec: Spec
   private _customTypes: Record<string, any>
-  private _typeChecker: TypeChecker
+  private _typeChecker: TypeEnforcer
   private _types: Record<string, any>
   private _typePrototypes: Record<string, any>
 
@@ -57,13 +120,13 @@ export class Naqed {
 
     this._customTypes = this.extractCustomTypes(spec)
 
-    this._types = Object.assign({}, this._customTypes, Naqed.scalars)
+    this._types = Object.assign({}, this._customTypes, scalars)
 
-    this._typeChecker = new TypeChecker(this._types)
+    this._typeChecker = new TypeEnforcer(this._types)
 
     this._typePrototypes = this.extractTypePrototypes()
 
-    this.lintSpecTypes(this._spec)
+    new Linter(this._types).lint(spec)
   }
 
   private extractCustomTypes (spec: Record<string, any>): Record<string, any> {
@@ -90,53 +153,15 @@ export class Naqed {
   // prototype for objects generated that are supposed to be this type.
   // this is useful for relations
   private extractTypePrototype (typeSpec: any): any {
-    return reconstruct(typeSpec, ([prop, propSpec]) => {
-      if (isFunction(propSpec)) return true // keep methods
-      if (isScalarType(propSpec)) return false // ignore scalar types
-      if (!isObject(propSpec)) return false // ignore non-objects
-
-      const [relatedName] = Object.keys(propSpec)
-      if (!relatedName.startsWith('$')) return false
-
-      // TODO: write test to cover this line
-      return [prop, propSpec]
-    })
-  }
-
-  private lintSpecTypes (spec: Spec, seen = new Set()) {
-    if (typeof spec === 'string') {
-      parseTypeSpec(spec, this._types)
-      return
-    }
-
-    if (Array.isArray(spec)) {
-      spec.forEach(s => seen.has(s) || this.lintSpecTypes(s, seen.add(s)))
-      return
-    }
-
-    if (isObject(spec)) {
-      if (spec.check) return
-      this.lintStructuredObject(spec, seen)
-    }
-  }
-
-  private lintStructuredObject (spec: Record<string, any>, seen: Set<unknown>) {
-    Object.entries(spec).forEach(([key, val]) => {
-      if (typeof val === 'function') {
-        if (key !== '$' && key.startsWith('$')) {
-          parseTypeSpec(key, this._types)
-        }
-      } else if (key.startsWith('~')) {
-        if (
-          typeof val !== 'function' &&
-          (!isObject(val) || !hasDynamicFn(val))
-        ) {
-          throw new Error('mutation.invalid')
-        }
-      } else if (!seen.has(val)) {
-        this.lintSpecTypes(val, seen.add(val))
-      }
-    })
+    return reconstruct(
+      typeSpec,
+      ([_, propSpec]) =>
+        // keep methods & Dynamic resolvers
+        isFunction(propSpec) ||
+        (!isScalarType(propSpec) &&
+          isObject(propSpec) &&
+          hasDynamicFn(propSpec))
+    )
   }
 
   public async request (q: Request, options: RequestOptions = {}) {
@@ -213,8 +238,6 @@ export class Naqed {
             queryVal,
             ctx
           )
-          if (isTypeError(resolution.resolveVal))
-            return [queryProp, resolution.resolveVal]
 
           resolveVal = resolution.resolveVal
           queryVal = resolution.queryVal
@@ -268,41 +291,24 @@ export class Naqed {
   }
 
   private async performDynamicResolution (
-    resolverVal: any,
+    resolveVal: any,
     queryVal: any,
     ctx: any
   ) {
-    const dynamic = extractDynamicMethods(resolverVal)
+    const dynamic = extractDynamicMethods(resolveVal)
 
     const typeSpec = Object.keys(dynamic)[0]
     const { typeName } = parseTypeSpec(typeSpec, this._types)
     const dynamicFn = dynamic[typeSpec]
     const shape =
       typeName === 'ANY'
-        ? extractNonArgs(resolverVal)
+        ? extractNonArgs(resolveVal)
         : this._typePrototypes[typeName]
 
     let resolved = dynamicFn
     if (isFunction(dynamicFn)) {
-      // Check query args against types
-      const args = extractArgs(queryVal)
-      const argsTypes = extractArgTypes(args, resolverVal)
-
-      for (const [argName, type] of Object.entries(argsTypes)) {
-        const checkedArg = this._typeChecker.check(args[argName], type)
-        if (isTypeError(checkedArg)) {
-          return { resolveVal: checkedArg, queryVal }
-        }
-
-        if (Array.isArray(checkedArg) && checkedArg.some(isTypeError)) {
-          return {
-            resolveVal: new TypeError(
-              `invalid ${type.substr(1)} arg ${argName}: [${args[argName]}]`
-            ),
-            queryVal
-          }
-        }
-      }
+      const args = this.prepareArgs(queryVal, resolveVal, ctx)
+      if (isTypeError(args)) return { resolveVal: args, queryVal }
 
       resolved = await dynamicFn.apply(null, [args, ctx])
 
@@ -311,16 +317,35 @@ export class Naqed {
     }
 
     if (Array.isArray(resolved)) {
-      resolverVal = resolved.map(obj =>
+      resolveVal = resolved.map(obj =>
         isObject(obj) ? Object.assign(Object.create(shape), obj) : obj
       )
     } else if (isObject(resolved)) {
-      resolverVal = Object.assign(Object.create(shape), resolved)
+      resolveVal = Object.assign(Object.create(shape), resolved)
     } else {
-      resolverVal = resolved
+      resolveVal = resolved
     }
 
-    return { resolveVal: resolverVal, queryVal }
+    return { resolveVal, queryVal }
+  }
+
+  private prepareArgs (queryVal: any, resolverVal: any, _ctx: any) {
+    // Check query args against types
+    const args = extractArgs(queryVal)
+    const argsTypes = extractArgTypes(args, resolverVal)
+
+    for (const [argName, type] of Object.entries(argsTypes)) {
+      const checkedArg = this._typeChecker.check(args[argName], type)
+      if (isTypeError(checkedArg)) {
+        return checkedArg
+      }
+
+      if (Array.isArray(checkedArg)) {
+        const err = checkedArg.find(isTypeError)
+        if (err) return err
+      }
+    }
+    return args
   }
 
   private async prepareResult (
@@ -339,6 +364,7 @@ export class Naqed {
       return Promise.all(
         resolveVal.map(rv => this.resolveQuery(rv, queryVal, ctx))
       )
+    if (isTypeError(resolveVal)) return resolveVal
 
     return this.resolveQuery(resolveVal, queryVal, ctx)
   }

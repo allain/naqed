@@ -9,7 +9,7 @@ const extractDynamicMethods = pluckKeys(
   (key: string) => key.match(/^\$([A-Z]|$)/i) && key
 )
 
-export class TypeChecker {
+export class TypeEnforcer {
   private _types: Record<string, any>
 
   constructor (types: Record<string, any>) {
@@ -21,7 +21,9 @@ export class TypeChecker {
 
     if (typeof spec === 'string') {
       const { type, isArray, required } = parseTypeSpec(spec, this._types)
-      if (!required && isEmpty(value)) return value
+      if (isEmpty(value)) {
+        return required ? new TypeError('required') : value
+      }
 
       spec = isArray ? [type] : type
     }
@@ -29,10 +31,12 @@ export class TypeChecker {
     if (Array.isArray(spec)) {
       return Array.isArray(value)
         ? value.map(val => this.check(val, spec[0]))
-        : new TypeError('invalid Array: ' + value)
+        : new TypeError(`invalid ARRAY: ${value}`)
     }
 
-    if (!isObject(spec)) return value
+    if (!isObject(spec)) {
+      return value
+    }
 
     const checkedScalar = this._checkScalar(value, spec)
     if (checkedScalar !== null) return checkedScalar
@@ -57,17 +61,13 @@ export class TypeChecker {
     const dynamic = extractDynamicMethods(spec)
     if (!Object.keys(dynamic).length) return null
 
-    const { type, typeName, isArray, required } = parseTypeSpec(
+    const { type, isArray, required } = parseTypeSpec(
       Object.keys(dynamic)[0],
       this._types
     )
     if (isEmpty(value)) {
-      if (required) return new TypeError(`missing ${typeName}`)
-
-      return value
+      return required ? new TypeError(`required`) : value
     }
-
-    if (typeName && !type) throw new TypeError(`unknown type: ${typeName}`)
 
     if (isArray) {
       return Array.isArray(value)
