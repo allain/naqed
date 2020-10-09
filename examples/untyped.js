@@ -1,5 +1,5 @@
 const util = require('util')
-const Naqed = require('naqed')
+const { Naqed } = require('naqed')
 
 const employees = [
   {

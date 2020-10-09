@@ -1,5 +1,5 @@
-const Naqed = require('../src/Naqed')
-const { INT } = Naqed.types
+const { Naqed } = require('naqed')
+const { INT } = Naqed.scalars
 
 async function main () {
   const n = new Naqed({

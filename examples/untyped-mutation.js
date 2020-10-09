@@ -1,4 +1,4 @@
-const Naqed = require('naqed')
+const { Naqed } = require('naqed')
 
 async function main () {
   const logs = []

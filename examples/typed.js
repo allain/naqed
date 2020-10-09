@@ -1,6 +1,6 @@
 const util = require('util')
-const Naqed = require('naqed')
-const { ID, INT, STRING, FLOAT } = Naqed.types
+const { Naqed } = require('naqed')
+const { ID, INT, STRING, FLOAT } = Naqed.scalars
 
 const employees = [
   {

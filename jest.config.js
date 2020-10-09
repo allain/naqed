@@ -1,9 +1,9 @@
 export default {
   transform: {
-    '^.+\\.tsx?$': 'ts-jest'
+    '^.+\\.ts$': 'ts-jest'
   },
-  testRegex: '(/__tests__/.*|(\\.|/)(test|spec))\\.(jsx?|tsx?)$',
-  testPathIgnorePatterns: ['/node_modules/', '/tmp/'],
-  moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json', 'node'],
+  testRegex: '(\\.test)\\.ts$',
+  testPathIgnorePatterns: ['/node_modules/', '/tmp/', '/pkg/'],
+  moduleFileExtensions: ['ts', 'js'],
   collectCoverage: true
 }

@@ -1,5 +1,5 @@
-const Naqed = require('naqed')
-const { STRING } = Naqed.types
+const { Naqed } = require('naqed')
+const { STRING } = Naqed.scalars
 
 async function main () {
   const logs = []
@@ -20,7 +20,7 @@ async function main () {
         logs.push(msg)
         return true
       },
-      $msg: STRING
+      $msg: '$STRING!'
     }
   })
 
