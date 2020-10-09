@@ -1,8 +1,7 @@
-import { Naqed, scalars } from '../src/Naqed'
-const { ID, ANY, STRING } = Naqed.scalars
+import { Naqed } from '../src/Naqed'
+const { BOOL, ID, INT, ANY, STRING } = Naqed.scalars
 const sleep = (ms: number, val: any) =>
   new Promise(r => setTimeout(() => r(val), ms))
-const { BOOL, INT } = scalars
 
 it('can be created', () => {
   const n = new Naqed({})
@@ -464,8 +463,8 @@ it('runs mutations in series', async () => {
   expect(typeof result.Second).toEqual('number')
   expect(typeof result.Third).toEqual('number')
 
-  expect(result.First).toBeLessThan(result.Second)
-  expect(result.Second).toBeLessThan(result.Third)
+  expect(result.First).toBeLessThan(result.Second as number)
+  expect(result.Second).toBeLessThan(result.Third as number)
 })
 
 it('complains when mutation requested does not exist', async () => {
@@ -537,7 +536,7 @@ it('returns error when request does not contain query or mutation', async () => 
     }
   })
 
-  expect(await n.request({})).toEqual(
+  await expect(n.request({})).rejects.toThrow(
     new TypeError('request must either be a query or mutation')
   )
 })

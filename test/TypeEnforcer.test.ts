@@ -1,6 +1,6 @@
 import { TypeEnforcer } from '../src/TypeEnforcer'
 // const { BOOL, INT, STRING } = Naqed.scalars
-import { scalars } from '../src/Naqed'
+import * as scalars from '../src/scalars'
 
 it('enforces built in scalars', async () => {
   const n = new TypeEnforcer(scalars)

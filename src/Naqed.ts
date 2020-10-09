@@ -3,6 +3,12 @@ import pluckKeys from './lib/pluck-keys'
 import { TypeEnforcer } from './TypeEnforcer'
 import { parseTypeSpec } from './parse-typespec'
 import { Linter } from './Linter'
+import { Request } from './Request'
+import { Response } from './Response'
+
+import { JSONValue } from './JSON'
+
+import * as scalars from './scalars'
 
 const isFunction = (x: any) => typeof x === 'function'
 const isObject = (x: any) => x && !Array.isArray(x) && typeof x === 'object'
@@ -35,76 +41,13 @@ const isScalarType = (obj: any) => Object.values(Naqed.scalars).includes(obj)
 const hasQuery = (request: Request) => hasMatchingKey(request, /^[^~]/)
 const hasMutation = (request: Request) => hasMatchingKey(request, /^[~]/)
 
-interface Scalar {
-  name: string
-  check(val: any): boolean
-}
 type Spec = Record<string, any>
-
-type RequestIter<T> = Record<
-  string,
-  number | string | boolean | Scalar | number[] | string[] | T
->
-interface Request extends RequestIter<Request> {}
-
-type JSONObjectIter<T> = Record<
-  string,
-  | undefined
-  | null
-  | number
-  | string
-  | boolean
-  | number[]
-  | string[]
-  | boolean[]
-  | T
-  | T[]
->
-interface JSONObject extends JSONObjectIter<JSONObject> {}
-
-type JSONValue =
-  | null
-  | number
-  | string
-  | boolean
-  | number[]
-  | string[]
-  | boolean[]
-  | JSONObject
-  | JSONObject[]
 
 type Vars = Record<string, JSONValue>
 
 type RequestOptions = {
   context?: any
   vars?: Vars
-}
-
-export const scalars: Record<string, Scalar> = {
-  ANY: {
-    name: 'ANY',
-    check: (_a: any) => true
-  },
-  BOOL: {
-    name: 'BOOL',
-    check: (b: any) => typeof b === 'boolean'
-  },
-  FLOAT: {
-    name: 'FLOAT',
-    check: (n: any) => `${n}` === `${parseFloat(n)}` && !isNaN(n)
-  },
-  ID: {
-    name: 'ID',
-    check: (n: any) => typeof n === 'string' && !!n.trim()
-  },
-  INT: {
-    name: 'INT',
-    check: (n: any) => `${n}` === `${parseInt(n, 10)}` && !isNaN(n)
-  },
-  STRING: {
-    name: 'STRING',
-    check: (str: any) => typeof str === 'string'
-  }
 }
 
 export class Naqed {
@@ -126,6 +69,7 @@ export class Naqed {
 
     this._typePrototypes = this.extractTypePrototypes()
 
+    // Throws NaqedError if the spec is invalid
     new Linter(this._types).lint(spec)
   }
 
@@ -164,7 +108,10 @@ export class Naqed {
     )
   }
 
-  public async request (q: Request, options: RequestOptions = {}) {
+  public async request (
+    q: Request,
+    options: RequestOptions = {}
+  ): Promise<Response> {
     const ctx = typeof options.context === 'undefined' ? {} : options.context
     const vars = options.vars || {}
 
@@ -195,7 +142,7 @@ export class Naqed {
       return await this.resolveMutation(this._spec, q, ctx)
     }
 
-    return new TypeError('request must either be a query or mutation')
+    throw new TypeError('request must either be a query or mutation')
   }
 
   private bindVars (q: Request, vars: Vars): Request {

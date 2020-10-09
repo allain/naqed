@@ -2,6 +2,6 @@
   "name": "examples",
   "license": "ISC",
   "dependencies": {
-    "naqed": "^0.2.3"
+    "naqed": "^0.3.0"
   }
 }
