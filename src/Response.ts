@@ -10,6 +10,4 @@ type ResponseIter<T> = Record<
   | OneOrArray<TypeError>
   | OneOrArray<T>
 >
-interface ResponseObject extends ResponseIter<ResponseObject> {}
-
-export type Response = ResponseObject
+export interface Response extends ResponseIter<Response> {}

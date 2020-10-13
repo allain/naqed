@@ -5,10 +5,8 @@ import { parseTypeSpec } from './parse-typespec'
 import { Linter } from './Linter'
 import { Request } from './Request'
 import { Response } from './Response'
-
-import { JSONValue } from './JSON'
-
 import * as scalars from './scalars'
+import { JSONValue, JSONObject } from './JSON'
 
 const isFunction = (x: any) => typeof x === 'function'
 const isObject = (x: any) => x && !Array.isArray(x) && typeof x === 'object'
@@ -43,7 +41,7 @@ const hasMutation = (request: Request) => hasMatchingKey(request, /^[~]/)
 
 type Spec = Record<string, any>
 
-type Vars = Record<string, JSONValue>
+export type Vars = Record<string, JSONValue>
 
 type RequestOptions = {
   context?: any
@@ -73,39 +71,48 @@ export class Naqed {
     new Linter(this._types).lint(spec)
   }
 
-  private extractCustomTypes (spec: Record<string, any>): Record<string, any> {
-    return reconstruct(spec, ([key, val]) => {
-      if (!key.startsWith('$')) return false
+  public get typeShape (): JSONValue {
+    const customTypeShapes = reconstruct(
+      this._customTypes,
+      ([typeName, spec]) => {
+        return ['$' + typeName, this.toTypeShape(spec)]
+      }
+    )
 
-      if (isScalarType(val)) {
-        // this is an alias for a scalar, so clone it
-        val = Object.assign({}, val, { name: key.substr(1) })
+    const specShapes = this.toTypeShape(this._spec) as JSONObject
+
+    return {
+      ...customTypeShapes,
+      ...specShapes
+    }
+  }
+
+  private toTypeShape (spec: Spec): JSONValue {
+    if (isObject(spec)) {
+      if (isScalarType(spec)) {
+        const scalar = spec as scalars.Scalar
+        return `$${scalar.name}`
       }
 
-      return [key.substr(1), val]
-    })
-  }
+      if (hasDynamicFn(spec)) {
+        const dynamic = extractDynamicMethods(spec)
+        const vars = extractArgs(spec)
+        return {
+          ...reconstruct(dynamic, ([name]) => [name, true]),
+          ...reconstruct(vars, ([name, spec]) => [
+            `$${name}`,
+            this.toTypeShape(spec)
+          ])
+        }
+      } else {
+        return reconstruct(spec, ([prop, spec]) => {
+          return [prop, this.toTypeShape(spec)]
+        })
+      }
+    }
 
-  private extractTypePrototypes (): Record<string, any> {
-    return reconstruct(this._customTypes, ([typeName, typeSpec]) => [
-      typeName,
-      this.extractTypePrototype(typeSpec)
-    ])
-  }
-
-  // extracts an object from the specified type that will be used as the
-  // prototype for objects generated that are supposed to be this type.
-  // this is useful for relations
-  private extractTypePrototype (typeSpec: any): any {
-    return reconstruct(
-      typeSpec,
-      ([_, propSpec]) =>
-        // keep methods & Dynamic resolvers
-        isFunction(propSpec) ||
-        (!isScalarType(propSpec) &&
-          isObject(propSpec) &&
-          hasDynamicFn(propSpec))
-    )
+    if (isFunction(spec)) return '$ANY'
+    return spec
   }
 
   public async request (
@@ -293,6 +300,41 @@ export class Naqed {
       }
     }
     return args
+  }
+
+  private extractCustomTypes (spec: Record<string, any>): Record<string, any> {
+    return reconstruct(spec, ([key, val]) => {
+      if (!key.startsWith('$')) return false
+
+      if (isScalarType(val)) {
+        // this is an alias for a scalar, so clone it
+        val = Object.assign({}, val, { name: key.substr(1) })
+      }
+
+      return [key.substr(1), val]
+    })
+  }
+
+  private extractTypePrototypes (): Record<string, any> {
+    return reconstruct(this._customTypes, ([typeName, typeSpec]) => [
+      typeName,
+      this.extractTypePrototype(typeSpec)
+    ])
+  }
+
+  // extracts an object from the specified type that will be used as the
+  // prototype for objects generated that are supposed to be this type.
+  // this is useful for relations
+  private extractTypePrototype (typeSpec: any): any {
+    return reconstruct(
+      typeSpec,
+      ([_, propSpec]) =>
+        // keep methods & Dynamic resolvers
+        isFunction(propSpec) ||
+        (!isScalarType(propSpec) &&
+          isObject(propSpec) &&
+          hasDynamicFn(propSpec))
+    )
   }
 
   private async prepareResult (

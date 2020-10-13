@@ -592,3 +592,46 @@ it('fails resolver if array args do not match', async () => {
     add: new TypeError('invalid INT: FAIL')
   })
 })
+
+it('exposes type shape', async () => {
+  const $B = {
+    id: '$ID!',
+    a: '$A',
+    method () {
+      return 10
+    }
+  }
+  const n = new Naqed({
+    $A: {
+      id: '$ID!',
+      name: STRING
+    },
+    $B,
+    // Test is a typed resolver that accepts X with ANY type and return an object with the $A type
+    test: {
+      $A ({ x }: any) {
+        return {
+          id: 'a',
+          name: 'Testing ' + x
+        }
+      },
+      $x: INT
+    }
+  })
+
+  expect(n.typeShape).toEqual({
+    $A: {
+      id: '$ID!',
+      name: '$STRING'
+    },
+    $B: {
+      id: '$ID!',
+      a: '$A',
+      method: '$ANY'
+    },
+    test: {
+      $A: true,
+      $x: '$INT'
+    }
+  })
+})
